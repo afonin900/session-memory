@@ -23,10 +23,15 @@ def _get_store() -> SqliteFtsStore:
 
 
 def _get_vector_store():
-    """Try to import LanceDB store, return None if not available (Phase 2)."""
+    """Create LanceDB store if dependencies available."""
     try:
-        from storage.lancedb_store import LanceDbStore
-        return LanceDbStore()
+        from storage.lancedb_store import LanceDBStore
+        from core.embedder import Embedder
+        db_dir_env = os.environ.get("SM_DB_DIR")
+        vectors_dir = Path(db_dir_env) / "vectors" if db_dir_env else DB_DIR / "vectors"
+        vstore = LanceDBStore(vectors_dir, Embedder())
+        vstore.init_db()
+        return vstore
     except ImportError:
         return None
 
@@ -65,7 +70,9 @@ def _format_fragment(frag, show_context=True):
 
 def cmd_index(args):
     store = _get_store()
+    vstore = _get_vector_store()
     indexer = _get_indexer(store)
+    indexer.vector_store = vstore
     if args.quick:
         stats = indexer.index_incremental()
         mode = "Incremental"
@@ -81,7 +88,8 @@ def cmd_index(args):
 
 def cmd_search(args):
     store = _get_store()
-    engine = SearchEngine(store=store)
+    vstore = _get_vector_store()
+    engine = SearchEngine(store=store, vector_store=vstore)
 
     mode = "keyword"
     if args.semantic:

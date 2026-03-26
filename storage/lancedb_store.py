@@ -33,7 +33,9 @@ class LanceDBStore:
         self.vectors_dir.mkdir(parents=True, exist_ok=True)
         self._db = lancedb.connect(str(self.vectors_dir))
         # Create table if not exists
-        if TABLE_NAME not in self._db.list_tables():
+        existing = self._db.list_tables()
+        existing_names = existing.tables if hasattr(existing, "tables") else list(existing)
+        if TABLE_NAME not in existing_names:
             self._db.create_table(TABLE_NAME, schema=_SCHEMA)
 
     def _get_table(self):
