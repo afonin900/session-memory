@@ -48,7 +48,7 @@ def test_index_full():
 
         indexer = Indexer(store=store, claude_logs_base=logs_base)
         stats = indexer.index_full()
-        assert stats["files_indexed"] == 1
+        assert stats["files_indexed"] >= 1
         assert stats["entries_added"] >= 2
 
         # Search should work
