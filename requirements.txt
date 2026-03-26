@@ -1,0 +1,5 @@
+lancedb>=0.15
+pyarrow>=14.0
+sentence-transformers>=3.0
+numpy>=1.26
+pytest>=8.0
