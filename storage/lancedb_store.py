@@ -120,7 +120,8 @@ class LanceDBStore:
     def delete_by_source(self, source_file: str):
         """Delete all vectors from a source file."""
         table = self._get_table()
+        escaped = source_file.replace("'", "''")
         try:
-            table.delete(f"source_file = '{source_file}'")
-        except Exception:
-            pass  # Table might be empty
+            table.delete(f"source_file = '{escaped}'")
+        except (OSError, ValueError):
+            pass  # Table might be empty or have no matching rows

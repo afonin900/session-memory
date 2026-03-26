@@ -31,6 +31,8 @@ class Indexer:
 
             # Delete old entries if re-indexing
             self.store.delete_by_source(str(path))
+            if self.vector_store:
+                self.vector_store.delete_by_source(str(path))
 
             entries = parser.parse_session(path)
             if entries:
@@ -59,6 +61,8 @@ class Indexer:
 
             # Re-index changed file
             self.store.delete_by_source(str(path))
+            if self.vector_store:
+                self.vector_store.delete_by_source(str(path))
 
             entries = parser.parse_session(path)
             if entries:
