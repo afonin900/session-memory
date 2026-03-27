@@ -31,6 +31,9 @@ PROJECT_MAP = {
 TOOL_RESULT_MAX_LENGTH = 500
 EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
 EMBEDDING_DIM = 768
+ONNX_MODEL_DIR = PROJECT_ROOT / "models" / "multilingual-e5-base-onnx"
+ONNX_MODEL_PATH = ONNX_MODEL_DIR / "model_quantized.onnx"
+ONNX_TOKENIZER_NAME = "intfloat/multilingual-e5-base"
 
 # Search defaults
 DEFAULT_SEARCH_LIMIT = 10
