@@ -73,16 +73,24 @@ def cmd_index(args):
     vstore = _get_vector_store()
     indexer = _get_indexer(store)
     indexer.vector_store = vstore
-    if args.quick:
+    if args.vectors_only:
+        if not vstore:
+            print("Error: vector store not available (missing dependencies?)")
+            return
+        indexer._index_vectors_inprocess()
+        print("Vectors-only indexing complete.")
+    elif args.quick:
         stats = indexer.index_incremental()
         mode = "Incremental"
+        print(f"{mode} indexing complete:")
+        print(f"  Indexed: {stats['files_indexed']} files, {stats['entries_added']} entries")
+        if "files_skipped" in stats:
+            print(f"  Skipped: {stats['files_skipped']} unchanged files")
     else:
         stats = indexer.index_full()
         mode = "Full"
-    print(f"{mode} indexing complete:")
-    print(f"  Indexed: {stats['files_indexed']} files, {stats['entries_added']} entries")
-    if "files_skipped" in stats:
-        print(f"  Skipped: {stats['files_skipped']} unchanged files")
+        print(f"{mode} indexing complete:")
+        print(f"  Indexed: {stats['files_indexed']} files, {stats['entries_added']} entries")
     store.close()
 
 
@@ -144,6 +152,7 @@ def main():
     # index
     p_index = sub.add_parser("index", help="Index session logs")
     p_index.add_argument("--quick", action="store_true", help="Incremental (new files only)")
+    p_index.add_argument("--vectors-only", action="store_true", help="Skip FTS, only build vector embeddings from existing entries")
     p_index.set_defaults(func=cmd_index)
 
     # search

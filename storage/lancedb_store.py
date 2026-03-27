@@ -1,4 +1,5 @@
 # storage/lancedb_store.py
+import gc
 import lancedb
 import pyarrow as pa
 from datetime import datetime, timezone, timedelta
@@ -38,33 +39,53 @@ class LanceDBStore:
         if TABLE_NAME not in existing_names:
             self._db.create_table(TABLE_NAME, schema=_SCHEMA)
 
+    def reconnect(self):
+        """Drop and reopen LanceDB connection to flush Arrow memory pools."""
+        self._db = None
+        gc.collect()
+        self._db = lancedb.connect(str(self.vectors_dir))
+
+    def drop_table(self):
+        """Drop vector table completely. Use before bulk reindex to avoid fragmentation."""
+        existing = self._db.list_tables()
+        existing_names = existing.tables if hasattr(existing, "tables") else list(existing)
+        if TABLE_NAME in existing_names:
+            self._db.drop_table(TABLE_NAME)
+        self._db.create_table(TABLE_NAME, schema=_SCHEMA)
+
     def _get_table(self):
         return self._db.open_table(TABLE_NAME)
 
-    def insert_entries(self, entries: list[LogEntry], ids: list[int]):
-        """Insert entries with pre-assigned IDs from SQLite."""
+    def insert_entries(self, entries: list[LogEntry], ids: list[int], chunk_size: int = 1000):
+        """Insert entries with pre-assigned IDs from SQLite. Processes in chunks to limit memory."""
         if not entries:
             return
 
-        texts = [e.content for e in entries]
-        vectors = self.embedder.embed_passages(texts)
-
-        records = []
-        for i, (entry, entry_id) in enumerate(zip(entries, ids)):
-            records.append({
-                "id": entry_id,
-                "text": entry.content,
-                "vector": vectors[i].tolist(),
-                "agent_type": entry.agent_type,
-                "project": entry.project,
-                "session_id": entry.session_id,
-                "role": entry.role,
-                "timestamp": entry.timestamp.isoformat(),
-                "source_file": entry.source_file,
-            })
-
         table = self._get_table()
-        table.add(records)
+
+        for start in range(0, len(entries), chunk_size):
+            chunk_entries = entries[start:start + chunk_size]
+            chunk_ids = ids[start:start + chunk_size]
+
+            texts = [e.content for e in chunk_entries]
+            vectors = self.embedder.embed_passages(texts)
+
+            records = []
+            for i, (entry, entry_id) in enumerate(zip(chunk_entries, chunk_ids)):
+                records.append({
+                    "id": entry_id,
+                    "text": entry.content,
+                    "vector": vectors[i].tolist(),
+                    "agent_type": entry.agent_type,
+                    "project": entry.project,
+                    "session_id": entry.session_id,
+                    "role": entry.role,
+                    "timestamp": entry.timestamp.isoformat(),
+                    "source_file": entry.source_file,
+                })
+
+            table.add(records)
+            del vectors, records
 
     def search(
         self,

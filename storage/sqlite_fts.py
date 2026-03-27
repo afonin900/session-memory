@@ -201,6 +201,34 @@ class SqliteFtsStore:
         )
         self._conn.commit()
 
+    def count_entries(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM sessions_log").fetchone()[0]
+
+    def get_entries_batch(self, offset: int, limit: int) -> list:
+        """Return list of (id, LogEntry) tuples for vector indexing."""
+        from storage.models import LogEntry
+        rows = self._conn.execute(
+            "SELECT id, agent_type, project, session_id, role, content, "
+            "timestamp, file_paths, issue_numbers, source_file "
+            "FROM sessions_log ORDER BY id LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        result = []
+        for row in rows:
+            entry = LogEntry(
+                agent_type=row["agent_type"],
+                project=row["project"],
+                session_id=row["session_id"],
+                role=row["role"],
+                content=row["content"],
+                timestamp=datetime.fromisoformat(row["timestamp"]),
+                file_paths=json.loads(row["file_paths"]),
+                issue_numbers=json.loads(row["issue_numbers"]),
+                source_file=row["source_file"],
+            )
+            result.append((row["id"], entry))
+        return result
+
     def stats(self) -> dict:
         total = self._conn.execute("SELECT COUNT(*) FROM sessions_log").fetchone()[0]
         by_project = {}
