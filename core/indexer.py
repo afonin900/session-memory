@@ -137,7 +137,7 @@ class Indexer:
 
             # Hard memory ceiling
             if rss > self._rss_ceiling_mb:
-                print(f"  [warning] RSS {rss:.0f}MB > ceiling {self._rss_ceiling_mb}MB — forcing cleanup")
+                print(f"  [cleanup] RSS {rss:.0f}MB > {self._rss_ceiling_mb}MB limit — freeing memory")
                 self.vector_store.reconnect()
                 gc.collect()
                 if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():

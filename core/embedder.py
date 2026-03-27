@@ -18,8 +18,15 @@ class Embedder:
 
     def _load(self):
         if Embedder._model is None:
+            import logging
+            import warnings
             from sentence_transformers import SentenceTransformer
-            Embedder._model = SentenceTransformer(EMBEDDING_MODEL)
+            # Suppress "position_ids UNEXPECTED" warning from e5-base model load
+            logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                Embedder._model = SentenceTransformer(EMBEDDING_MODEL)
+            logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
             Embedder._model.max_seq_length = 256  # truncate long messages
 
     def embed_query(self, text: str) -> np.ndarray:
