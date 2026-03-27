@@ -86,8 +86,6 @@ class Indexer:
         Single model load, processes in chunks of 250 entries.
         gc.collect every 2.5k, LanceDB reconnect every 5k, hard ceiling at 1GB RSS.
         """
-        import torch
-
         total = self.store.count_entries()
         print(f"Phase 2 (vectors): {total} entries to embed")
         t0 = time.time()
@@ -105,8 +103,7 @@ class Indexer:
             ids = [r[0] for r in rows]
 
             # Embed and write to LanceDB (insert_entries handles internal chunking)
-            with torch.no_grad():
-                self.vector_store.insert_entries(entries, ids)
+            self.vector_store.insert_entries(entries, ids)
 
             embedded_total += len(entries)
             elapsed = time.time() - t0
@@ -134,17 +131,11 @@ class Indexer:
                 self.vector_store.reconnect()
                 gc.collect()
 
-            # MPS cache clear (Apple Silicon unified memory)
-            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                torch.mps.empty_cache()
-
             # Hard memory ceiling
             if rss > self._rss_ceiling_mb:
                 print(f"  [cleanup] RSS {rss:.0f}MB > {self._rss_ceiling_mb}MB limit — freeing memory")
                 self.vector_store.reconnect()
                 gc.collect()
-                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    torch.mps.empty_cache()
 
         total_time = time.time() - t0
         print(f"Phase 2 complete: {embedded_total} entries in {total_time/60:.1f} min")

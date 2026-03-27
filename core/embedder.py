@@ -1,45 +1,37 @@
-import os
+# core/embedder.py
+"""Embedder facade — uses ONNX if available, falls back to PyTorch.
+
+ONNX: import ~0.1s, inference ~14ms (requires scripts/export_onnx.py first).
+PyTorch: import ~2.4s, inference ~45ms (original, always available).
+"""
 import numpy as np
-from config import EMBEDDING_MODEL
+from config import ONNX_MODEL_PATH
 
-# 4 threads — good balance for Apple Silicon with 18GB RAM
-os.environ.setdefault("OMP_NUM_THREADS", "4")
-os.environ.setdefault("MKL_NUM_THREADS", "4")
 
-import torch
-torch.set_num_threads(4)
-
-# batch_size for bulk indexing vs single queries
-BULK_BATCH_SIZE = 128
+def _get_backend():
+    """Return best available embedder backend."""
+    if ONNX_MODEL_PATH.exists():
+        try:
+            from core.embedder_onnx import OnnxEmbedder
+            return OnnxEmbedder()
+        except ImportError:
+            pass
+    # Fallback to PyTorch
+    from core.embedder_pytorch import PyTorchEmbedder
+    return PyTorchEmbedder()
 
 
 class Embedder:
-    _model = None
+    _backend = None
 
     def _load(self):
-        if Embedder._model is None:
-            import logging
-            import warnings
-            from sentence_transformers import SentenceTransformer
-            # Suppress "position_ids UNEXPECTED" warning from e5-base model load
-            logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                Embedder._model = SentenceTransformer(EMBEDDING_MODEL)
-            logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
-            Embedder._model.max_seq_length = 256  # truncate long messages
+        if Embedder._backend is None:
+            Embedder._backend = _get_backend()
 
     def embed_query(self, text: str) -> np.ndarray:
-        """Embed a search query. Uses 'query: ' prefix per e5 spec."""
         self._load()
-        return Embedder._model.encode(
-            f"query: {text}", normalize_embeddings=True
-        ).astype(np.float32)
+        return Embedder._backend.embed_query(text)
 
-    def embed_passages(self, texts: list[str], batch_size: int = BULK_BATCH_SIZE) -> np.ndarray:
-        """Embed document passages. Uses 'passage: ' prefix per e5 spec."""
+    def embed_passages(self, texts: list[str], batch_size: int = 128) -> np.ndarray:
         self._load()
-        return Embedder._model.encode(
-            [f"passage: {t}" for t in texts],
-            normalize_embeddings=True, batch_size=batch_size,
-        ).astype(np.float32)
+        return Embedder._backend.embed_passages(texts, batch_size=batch_size)
