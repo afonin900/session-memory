@@ -49,6 +49,9 @@ python3 cli.py index --quick
 
 # Rebuild vectors from existing FTS index (skip re-parsing)
 python3 cli.py index --vectors-only
+
+# Limit RSS memory ceiling during vector indexing (default: 1024 MB)
+python3 cli.py index --max-memory 2048
 ```
 
 ### Search
@@ -130,7 +133,7 @@ Project aliases are defined in `config.py` → `PROJECT_MAP`. Add your repo ther
 
 ## Adding a Parser
 
-1. Create `parsers/yourагент.py` implementing `BaseParser`:
+1. Create `parsers/youragent.py` implementing `BaseParser`:
 
 ```python
 from pathlib import Path
