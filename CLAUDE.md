@@ -5,11 +5,12 @@ Cross-project CLI tool for searching AI agent session logs.
 ## Quick Start
 
 ```bash
-python3 cli.py index          # Index all session logs
-python3 cli.py search "query" # Keyword search (FTS5)
-python3 cli.py search -s "query"  # Semantic search (LanceDB)
-python3 cli.py search -a "query"  # Both merged (RRF)
-python3 cli.py stats          # Index statistics
+pip install -r requirements.txt
+python3 scripts/export_onnx.py   # one-time: export model to ONNX (~265MB)
+python3 cli.py index              # index session logs
+python3 cli.py search "query"     # keyword search
+python3 cli.py search -s "query"  # semantic search
+python3 cli.py search -a "query"  # both merged (RRF)
 ```
 
 ## MCP Server
@@ -50,7 +51,7 @@ Tool `search_sessions`: поиск по логам сессий (keyword + seman
 ## Dependencies
 
 ```bash
-pip install lancedb pyarrow sentence-transformers numpy
+pip install -r requirements.txt
 ```
 
-Requires: Python 3.10+, ~400MB for multilingual-e5-base model (downloaded on first semantic search)
+Requires: Python 3.10+, ONNX Runtime for fast inference (~265MB exported model, one-time setup via `scripts/export_onnx.py`). Falls back to PyTorch/sentence-transformers if ONNX model not exported.
