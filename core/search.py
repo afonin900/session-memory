@@ -1,7 +1,13 @@
 # core/search.py
-from storage.sqlite_fts import SqliteFtsStore
+from storage.sqlite_fts import SqliteFtsStore, _FTS5_OPERATORS
 from storage.models import SessionFragment
 from config import DEFAULT_SEARCH_LIMIT, CONTEXT_WINDOW
+
+
+def _has_fts5_operators(query: str) -> bool:
+    """Return True if query already contains explicit FTS5 operators."""
+    tokens = query.split()
+    return any(t in _FTS5_OPERATORS for t in tokens)
 
 
 class SearchEngine:
@@ -27,7 +33,11 @@ class SearchEngine:
 
         if mode == "keyword":
             # FTS5 default is AND — use OR for broader matching
-            fts_query = " OR ".join(query.split())
+            # But if user supplied explicit operators, pass query as-is
+            if _has_fts5_operators(query):
+                fts_query = query
+            else:
+                fts_query = " OR ".join(query.split())
             results = self.store.search(
                 fts_query, project=project, agent_type=agent_type,
                 days=days, role=role, limit=limit,
@@ -77,7 +87,11 @@ class SearchEngine:
         filters = dict(project=project, agent_type=agent_type, days=days, role=role)
 
         # FTS5 default is AND — use OR for natural language queries
-        fts_query = " OR ".join(query.split())
+        # But if user supplied explicit operators, pass query as-is
+        if _has_fts5_operators(query):
+            fts_query = query
+        else:
+            fts_query = " OR ".join(query.split())
         keyword_results = self.store.search(fts_query, **filters, limit=20)
         semantic_results = (
             self.vector_store.search(query, **filters, limit=20)

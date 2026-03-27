@@ -46,6 +46,27 @@ END;
 """
 
 
+_FTS5_OPERATORS = {"AND", "OR", "NOT", "NEAR"}
+
+
+def _escape_fts5_query(query: str) -> str:
+    """Escape tokens containing hyphens for FTS5 to prevent them being parsed as NOT operator.
+
+    Tokens with hyphens are wrapped in double quotes: kfs-app -> "kfs-app".
+    Explicit FTS5 operators (AND, OR, NOT, NEAR) are left intact.
+    """
+    tokens = query.split()
+    escaped = []
+    for token in tokens:
+        if token in _FTS5_OPERATORS:
+            escaped.append(token)
+        elif "-" in token and not token.startswith('"'):
+            escaped.append(f'"{token}"')
+        else:
+            escaped.append(token)
+    return " ".join(escaped)
+
+
 def _row_to_result(row: sqlite3.Row, score: float = 0.0) -> SearchResult:
     return SearchResult(
         id=row["id"],
@@ -110,6 +131,7 @@ class SqliteFtsStore:
         limit: int = 20,
     ) -> list[SearchResult]:
         """FTS5 keyword search."""
+        query = _escape_fts5_query(query)
         conditions = ["sessions_fts MATCH ?"]
         params: list = [query]
 
