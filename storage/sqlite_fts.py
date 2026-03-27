@@ -47,20 +47,25 @@ END;
 
 
 _FTS5_OPERATORS = {"AND", "OR", "NOT", "NEAR"}
+_FTS5_SPECIAL = set('-*%^()')
 
 
 def _escape_fts5_query(query: str) -> str:
-    """Escape tokens containing hyphens for FTS5 to prevent them being parsed as NOT operator.
-
-    Tokens with hyphens are wrapped in double quotes: kfs-app -> "kfs-app".
+    """Escape tokens containing FTS5 special characters.
+    Tokens with special chars are wrapped in double quotes.
     Explicit FTS5 operators (AND, OR, NOT, NEAR) are left intact.
+    Already-quoted tokens are left intact.
     """
+    if not query:
+        return ""
     tokens = query.split()
     escaped = []
     for token in tokens:
         if token in _FTS5_OPERATORS:
             escaped.append(token)
-        elif "-" in token and not token.startswith('"'):
+        elif token.startswith('"') and token.endswith('"'):
+            escaped.append(token)
+        elif any(c in _FTS5_SPECIAL for c in token):
             escaped.append(f'"{token}"')
         else:
             escaped.append(token)
