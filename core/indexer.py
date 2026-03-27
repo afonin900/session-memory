@@ -3,6 +3,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from core.noise_filter import should_index_vector
 from parsers.registry import get_parsers
 from storage.sqlite_fts import SqliteFtsStore
 
@@ -95,6 +96,8 @@ class Indexer:
         for offset in range(0, total, chunk_size):
             batch_t0 = time.time()
             rows = self.store.get_entries_batch(offset, chunk_size)
+            # Filter noise before embedding
+            rows = [(id_, entry) for id_, entry in rows if should_index_vector(entry)]
             if not rows:
                 continue
 
@@ -168,7 +171,10 @@ class Indexer:
             if entries:
                 ids = self.store.insert_entries(entries)
                 if self.vector_store:
-                    self.vector_store.insert_entries(entries, ids)
+                    filtered = [(e, i) for e, i in zip(entries, ids) if should_index_vector(e)]
+                    if filtered:
+                        f_entries, f_ids = zip(*filtered)
+                        self.vector_store.insert_entries(list(f_entries), list(f_ids))
                 entries_added += len(entries)
             self.store.mark_indexed(str(path), mtime, len(entries))
             files_indexed += 1
