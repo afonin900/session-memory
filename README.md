@@ -1,8 +1,14 @@
 # Session Memory
 
+**[English](#english) | [Русский](#русский)**
+
+---
+
+## English
+
 Search across your AI agent session logs — Claude Code, Codex, Gemini, Aider — by keyword or meaning.
 
-## Quick Start
+### Quick Start
 
 ```bash
 pip install lancedb pyarrow sentence-transformers numpy fastmcp
@@ -10,7 +16,7 @@ python3 cli.py index           # index all session logs
 python3 cli.py search "query"  # keyword search
 ```
 
-## Architecture
+### Architecture
 
 ```
 cli.py / mcp_server.py
@@ -27,18 +33,18 @@ cli.py / mcp_server.py
         |
         +-- SearchEngine (core/search.py)
                 |
-                +-- keyword  → FTS5 OR query
-                +-- semantic → LanceDB cosine similarity
-                +-- all      → RRF merge (Reciprocal Rank Fusion)
+                +-- keyword  -> FTS5 OR query
+                +-- semantic -> LanceDB cosine similarity
+                +-- all      -> RRF merge (Reciprocal Rank Fusion)
                 |
-                +-- get_context() → SessionFragment (match + 2 messages before/after)
+                +-- get_context() -> SessionFragment (match + 2 messages before/after)
 ```
 
-Data model: each indexed unit is a `LogEntry` — one message from one session with role, content, timestamp, project alias, and extracted file paths / issue numbers.
+**Data model:** each indexed unit is a `LogEntry` — one message from one session with role, content, timestamp, project alias, and extracted file paths / issue numbers.
 
-## CLI Usage
+### CLI Usage
 
-### Index
+#### Index
 
 ```bash
 # Full reindex (FTS + vectors if available)
@@ -54,7 +60,7 @@ python3 cli.py index --vectors-only
 python3 cli.py index --max-memory 2048
 ```
 
-### Search
+#### Search
 
 ```bash
 # Keyword (FTS5, default)
@@ -82,7 +88,7 @@ python3 cli.py search "issue" --role user
 python3 cli.py search "query" --limit 20
 ```
 
-### Stats
+#### Stats
 
 ```bash
 python3 cli.py stats
@@ -91,7 +97,7 @@ python3 cli.py stats
 # By agent:   claude: 138000  codex: 4831 ...
 ```
 
-## MCP Server
+### MCP Server
 
 Connect session-memory as an MCP tool so Claude Code can search past sessions directly.
 
@@ -122,7 +128,7 @@ Returns compact results with timestamp, project, session ID, snippet (200 chars)
 
 Auto-selects RRF mode when vector index is available, falls back to keyword search otherwise.
 
-## Configuration
+### Configuration
 
 | Env variable | Default | Description |
 |-------------|---------|-------------|
@@ -131,7 +137,7 @@ Auto-selects RRF mode when vector index is available, falls back to keyword sear
 
 Project aliases are defined in `config.py` → `PROJECT_MAP`. Add your repo there if it's not recognized.
 
-## Adding a Parser
+### Adding a Parser
 
 1. Create `parsers/youragent.py` implementing `BaseParser`:
 
@@ -170,7 +176,7 @@ def get_parsers(...) -> list[BaseParser]:
 
 3. Run `python3 cli.py index` — your logs will be picked up automatically.
 
-## Development
+### Development
 
 ```bash
 # Install dependencies
@@ -183,9 +189,207 @@ pytest
 pytest -v
 ```
 
+Project structure:
+
 - `core/` — indexer, search engine, embedder (no I/O)
 - `parsers/` — one file per agent type
 - `storage/` — SQLite FTS5 (`sqlite_fts.py`), LanceDB (`lancedb_store.py`), shared models
 - `db/` — database files (gitignored)
 
 Requires Python 3.10+. Semantic search downloads `intfloat/multilingual-e5-base` (~400 MB) on first use.
+
+---
+
+## Русский
+
+Полнотекстовый и семантический поиск по логам AI-агентов — Claude Code, Codex, Gemini, Aider.
+
+### Быстрый старт
+
+```bash
+pip install lancedb pyarrow sentence-transformers numpy fastmcp
+python3 cli.py index           # проиндексировать все логи
+python3 cli.py search "запрос" # поиск по ключевым словам
+```
+
+### Архитектура
+
+```
+cli.py / mcp_server.py
+        |
+        +-- Indexer (core/indexer.py)
+        |       |
+        |       +-- parsers/registry.py --> ClaudeParser  (~/.claude/projects/**/*.jsonl)
+        |       |                       --> CodexParser   (~/.codex/sessions/rollout-*.jsonl)
+        |       |                       --> GeminiParser  (заглушка)
+        |       |                       --> AiderParser   (заглушка)
+        |       |
+        |       +-- SqliteFtsStore  (db/sessions.db)   Фаза 1: FTS5/BM25
+        |       +-- LanceDBStore    (db/vectors/)       Фаза 2: эмбеддинги (опционально)
+        |
+        +-- SearchEngine (core/search.py)
+                |
+                +-- keyword  -> FTS5 OR-запрос
+                +-- semantic -> косинусное сходство LanceDB
+                +-- all      -> RRF-слияние (Reciprocal Rank Fusion)
+                |
+                +-- get_context() -> SessionFragment (совпадение + 2 сообщения до/после)
+```
+
+**Модель данных:** единица индексации — `LogEntry` — одно сообщение из сессии. Содержит: роль, текст, временную метку, псевдоним проекта, извлечённые пути к файлам и номера задач (issues).
+
+### Использование CLI
+
+#### Индексация
+
+```bash
+# Полная переиндексация (FTS + векторы если доступны)
+python3 cli.py index
+
+# Инкрементальная — только новые или изменённые файлы
+python3 cli.py index --quick
+
+# Перестроить только векторы из существующего FTS-индекса
+python3 cli.py index --vectors-only
+
+# Ограничить потребление RSS-памяти при индексации (по умолчанию: 1024 МБ)
+python3 cli.py index --max-memory 2048
+```
+
+#### Поиск
+
+```bash
+# По ключевым словам (FTS5, режим по умолчанию)
+python3 cli.py search "docker migration"
+
+# Семантический поиск (требует векторный индекс)
+python3 cli.py search -s "как мы решили утечку памяти"
+
+# Оба режима через RRF
+python3 cli.py search -a "authentication flow"
+
+# Фильтр по проекту
+python3 cli.py search "webhook" -p kfs
+
+# Фильтр по агенту
+python3 cli.py search "refactor" --agent codex
+
+# Только последние 7 дней
+python3 cli.py search "deploy" --days 7
+
+# Фильтр по роли (user / assistant / tool_use / tool_result)
+python3 cli.py search "issue" --role user
+
+# Больше результатов
+python3 cli.py search "запрос" --limit 20
+```
+
+#### Статистика
+
+```bash
+python3 cli.py stats
+# Total entries: 142831
+# By project: kfs: 89012  hq: 31045  jh: 14200 ...
+# By agent:   claude: 138000  codex: 4831 ...
+```
+
+### MCP-сервер
+
+Подключите session-memory как MCP-инструмент, чтобы Claude Code мог искать по прошлым сессиям напрямую.
+
+Добавьте в `~/.claude/.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "session-memory": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["/absolute/path/to/session-memory/mcp_server.py"]
+    }
+  }
+}
+```
+
+Доступный инструмент: **`search_sessions`**
+
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `query` | str | обязательный | Поисковый запрос |
+| `project` | str | null | Фильтр: hq, kfs, jh, bb, aie... |
+| `days` | int | 30 | Глубина поиска в днях |
+| `limit` | int | 5 | Максимум результатов |
+
+Возвращает компактные результаты: временная метка, проект, ID сессии, фрагмент текста (200 символов) и окружающий контекст. Системные сообщения и записи короче 50 символов отфильтровываются автоматически.
+
+Если векторный индекс доступен — автоматически используется режим RRF. Иначе — поиск по ключевым словам.
+
+### Конфигурация
+
+| Переменная окружения | По умолчанию | Описание |
+|---------------------|--------------|----------|
+| `SM_DB_DIR` | `./db/` | Директория для SQLite и LanceDB |
+| `SM_CLAUDE_LOGS` | `~/.claude/projects/` | Переопределить путь к логам Claude |
+
+Псевдонимы проектов задаются в `config.py` → `PROJECT_MAP`. Добавьте туда своё репо, если оно не распознаётся автоматически.
+
+### Добавить парсер
+
+1. Создайте `parsers/youragent.py`, реализующий `BaseParser`:
+
+```python
+from pathlib import Path
+from parsers.base import BaseParser
+from storage.models import LogEntry
+
+class YourParser(BaseParser):
+    agent_type = "youragent"
+
+    def discover_sessions(self) -> list[Path]:
+        base = Path.home() / ".youragent" / "sessions"
+        return sorted(base.rglob("*.jsonl")) if base.exists() else []
+
+    def parse_session(self, path: Path) -> list[LogEntry]:
+        entries = []
+        # Разберите путь, создайте LogEntry на каждое сообщение
+        # Обязательные поля: agent_type, project, session_id, role, content, timestamp
+        return entries
+```
+
+2. Зарегистрируйте в `parsers/registry.py` → `get_parsers()`:
+
+```python
+from parsers.youragent import YourParser
+
+def get_parsers(...) -> list[BaseParser]:
+    return [
+        ClaudeParser(...),
+        CodexParser(),
+        YourParser(),   # добавьте сюда
+        ...
+    ]
+```
+
+3. Запустите `python3 cli.py index` — логи нового агента подхватятся автоматически.
+
+### Разработка
+
+```bash
+# Установить зависимости
+pip install -r requirements.txt
+
+# Запустить тесты
+pytest
+
+# Запустить тесты подробно
+pytest -v
+```
+
+Структура проекта:
+
+- `core/` — индексер, поисковый движок, эмбеддер (без I/O)
+- `parsers/` — один файл на тип агента
+- `storage/` — SQLite FTS5 (`sqlite_fts.py`), LanceDB (`lancedb_store.py`), общие модели
+- `db/` — файлы баз данных (в .gitignore)
+
+Требуется Python 3.10+. Семантический поиск при первом запуске загружает модель `intfloat/multilingual-e5-base` (~400 МБ).
