@@ -43,6 +43,7 @@ class LanceDBStore:
         """Drop and reopen LanceDB connection to flush Arrow memory pools."""
         self._db = None
         gc.collect()
+        pa.default_memory_pool().release_unused()
         self._db = lancedb.connect(str(self.vectors_dir))
 
     def drop_table(self):
@@ -56,8 +57,12 @@ class LanceDBStore:
     def _get_table(self):
         return self._db.open_table(TABLE_NAME)
 
-    def insert_entries(self, entries: list[LogEntry], ids: list[int], chunk_size: int = 1000):
-        """Insert entries with pre-assigned IDs from SQLite. Processes in chunks to limit memory."""
+    def insert_entries(self, entries: list[LogEntry], ids: list[int], chunk_size: int = 250):
+        """Insert entries with pre-assigned IDs from SQLite. Processes in chunks to limit memory.
+
+        Uses pyarrow Table directly instead of list[dict] to avoid x7 memory overhead
+        from numpy float32 -> Python list[float] conversion via .tolist().
+        """
         if not entries:
             return
 
@@ -68,24 +73,28 @@ class LanceDBStore:
             chunk_ids = ids[start:start + chunk_size]
 
             texts = [e.content for e in chunk_entries]
-            vectors = self.embedder.embed_passages(texts)
+            vectors = self.embedder.embed_passages(texts)  # shape: (N, DIM), float32 numpy
 
-            records = []
-            for i, (entry, entry_id) in enumerate(zip(chunk_entries, chunk_ids)):
-                records.append({
-                    "id": entry_id,
-                    "text": entry.content,
-                    "vector": vectors[i].tolist(),
-                    "agent_type": entry.agent_type,
-                    "project": entry.project,
-                    "session_id": entry.session_id,
-                    "role": entry.role,
-                    "timestamp": entry.timestamp.isoformat(),
-                    "source_file": entry.source_file,
-                })
+            # Build pyarrow arrays directly — avoids .tolist() float32->float64 overhead
+            vectors_array = pa.FixedSizeListArray.from_arrays(
+                pa.array(vectors.flatten(), type=pa.float32()),
+                list_size=vectors.shape[1],
+            )
 
-            table.add(records)
-            del vectors, records
+            batch = pa.table({
+                "id": pa.array(chunk_ids, type=pa.int64()),
+                "text": pa.array(texts, type=pa.string()),
+                "vector": vectors_array,
+                "agent_type": pa.array([e.agent_type for e in chunk_entries], type=pa.string()),
+                "project": pa.array([e.project for e in chunk_entries], type=pa.string()),
+                "session_id": pa.array([e.session_id for e in chunk_entries], type=pa.string()),
+                "role": pa.array([e.role for e in chunk_entries], type=pa.string()),
+                "timestamp": pa.array([e.timestamp.isoformat() for e in chunk_entries], type=pa.string()),
+                "source_file": pa.array([e.source_file for e in chunk_entries], type=pa.string()),
+            })
+
+            table.add(batch)
+            del vectors, batch, vectors_array
 
     def search(
         self,

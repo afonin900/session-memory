@@ -205,10 +205,14 @@ class SqliteFtsStore:
         return self._conn.execute("SELECT COUNT(*) FROM sessions_log").fetchone()[0]
 
     def get_entries_batch(self, offset: int, limit: int) -> list:
-        """Return list of (id, LogEntry) tuples for vector indexing."""
+        """Return list of (id, LogEntry) tuples for vector indexing.
+
+        Content is truncated to 1000 chars at SQL level — sufficient for 256-token
+        embedder limit and avoids loading full 593KB max entries into memory.
+        """
         from storage.models import LogEntry
         rows = self._conn.execute(
-            "SELECT id, agent_type, project, session_id, role, content, "
+            "SELECT id, agent_type, project, session_id, role, SUBSTR(content, 1, 1000) as content, "
             "timestamp, file_paths, issue_numbers, source_file "
             "FROM sessions_log ORDER BY id LIMIT ? OFFSET ?",
             (limit, offset),

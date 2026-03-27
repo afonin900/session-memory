@@ -1,24 +1,30 @@
 import gc
 import os
+import subprocess
 import time
 from pathlib import Path
 from parsers.registry import get_parsers
 from storage.sqlite_fts import SqliteFtsStore
 
 
-# Memory ceiling: 2GB RSS — trigger forced cleanup if exceeded
-_RSS_CEILING_MB = 2048
-_LANCE_RECONNECT_EVERY = 50_000  # flush Arrow memory pools
-_GC_EVERY = 10_000  # garbage collect cycle
+# Memory ceiling: 1GB RSS — trigger forced cleanup if exceeded
+_RSS_CEILING_MB = 1024
+_LANCE_RECONNECT_EVERY = 5_000   # flush Arrow memory pools (was 50_000)
+_GC_EVERY = 2_500                # garbage collect cycle (was 10_000)
 
 
 def _get_rss_mb() -> float:
-    """Get current process RSS in MB (macOS/Linux)."""
+    """Get current process RSS in MB (macOS/Linux).
+
+    Uses 'ps' to get live RSS instead of resource.getrusage which returns
+    PEAK RSS on macOS — useless for detecting memory growth during indexing.
+    """
     try:
-        import resource
-        # maxrss on macOS is in bytes
-        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        return rss / (1024 * 1024) if os.uname().sysname == "Darwin" else rss / 1024
+        out = subprocess.check_output(
+            ["ps", "-o", "rss=", "-p", str(os.getpid())],
+            text=True,
+        )
+        return int(out.strip()) / 1024  # ps reports KB
     except Exception:
         return 0
 
@@ -29,10 +35,12 @@ class Indexer:
         store: SqliteFtsStore,
         claude_logs_base: Path | None = None,
         vector_store=None,
+        rss_ceiling_mb: int | None = None,
     ):
         self.store = store
         self.vector_store = vector_store
         self.parsers = get_parsers(claude_logs_base=claude_logs_base)
+        self._rss_ceiling_mb = rss_ceiling_mb if rss_ceiling_mb is not None else _RSS_CEILING_MB
 
     def _discover_all(self):
         """Discover all session files from all parsers."""
@@ -71,11 +79,11 @@ class Indexer:
 
         return {"files_indexed": files_indexed, "entries_added": entries_added}
 
-    def _index_vectors_inprocess(self, chunk_size: int = 1000):
+    def _index_vectors_inprocess(self, chunk_size: int = 250):
         """Embed all entries in-process with memory management.
 
-        Single model load, processes in chunks of 1000 entries.
-        gc.collect every 10k, LanceDB reconnect every 50k, hard ceiling at 2GB RSS.
+        Single model load, processes in chunks of 250 entries.
+        gc.collect every 2.5k, LanceDB reconnect every 5k, hard ceiling at 1GB RSS.
         """
         import torch
 
@@ -123,12 +131,17 @@ class Indexer:
                 self.vector_store.reconnect()
                 gc.collect()
 
+            # MPS cache clear (Apple Silicon unified memory)
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+
             # Hard memory ceiling
-            if rss > _RSS_CEILING_MB:
-                print(f"  [warning] RSS {rss:.0f}MB > ceiling {_RSS_CEILING_MB}MB — forcing cleanup")
+            if rss > self._rss_ceiling_mb:
+                print(f"  [warning] RSS {rss:.0f}MB > ceiling {self._rss_ceiling_mb}MB — forcing cleanup")
                 self.vector_store.reconnect()
                 gc.collect()
-                torch.mps.empty_cache() if hasattr(torch, "mps") else None
+                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
 
         total_time = time.time() - t0
         print(f"Phase 2 complete: {embedded_total} entries in {total_time/60:.1f} min")

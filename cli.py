@@ -36,10 +36,10 @@ def _get_vector_store():
         return None
 
 
-def _get_indexer(store: SqliteFtsStore) -> Indexer:
+def _get_indexer(store: SqliteFtsStore, rss_ceiling_mb: int | None = None) -> Indexer:
     claude_logs = os.environ.get("SM_CLAUDE_LOGS")
     claude_base = Path(claude_logs) if claude_logs else None
-    return Indexer(store=store, claude_logs_base=claude_base)
+    return Indexer(store=store, claude_logs_base=claude_base, rss_ceiling_mb=rss_ceiling_mb)
 
 
 def _format_fragment(frag, show_context=True):
@@ -71,7 +71,7 @@ def _format_fragment(frag, show_context=True):
 def cmd_index(args):
     store = _get_store()
     vstore = _get_vector_store()
-    indexer = _get_indexer(store)
+    indexer = _get_indexer(store, rss_ceiling_mb=getattr(args, "max_memory", None))
     indexer.vector_store = vstore
     if args.vectors_only:
         if not vstore:
@@ -153,6 +153,8 @@ def main():
     p_index = sub.add_parser("index", help="Index session logs")
     p_index.add_argument("--quick", action="store_true", help="Incremental (new files only)")
     p_index.add_argument("--vectors-only", action="store_true", help="Skip FTS, only build vector embeddings from existing entries")
+    p_index.add_argument("--max-memory", type=int, default=1024, metavar="MB",
+                         help="RSS ceiling in MB before forced cleanup (default: 1024)")
     p_index.set_defaults(func=cmd_index)
 
     # search
