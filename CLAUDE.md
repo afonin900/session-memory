@@ -12,6 +12,24 @@ python3 cli.py search -a "query"  # Both merged (RRF)
 python3 cli.py stats          # Index statistics
 ```
 
+## MCP Server
+
+Session Memory доступен как MCP tool для Claude Code:
+
+```bash
+# Настройка в ~/.claude/settings.json
+{
+  "mcpServers": {
+    "session-memory": {
+      "command": "python3",
+      "args": ["/path/to/session-memory/mcp_server.py"]
+    }
+  }
+}
+```
+
+Tool `search_sessions`: поиск по логам сессий (keyword + semantic RRF merge).
+
 ## Architecture
 
 - `cli.py` — thin argparse entry point

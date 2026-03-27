@@ -26,8 +26,10 @@ class SearchEngine:
         """Search sessions and return results with context windows."""
 
         if mode == "keyword":
+            # FTS5 default is AND — use OR for broader matching
+            fts_query = " OR ".join(query.split())
             results = self.store.search(
-                query, project=project, agent_type=agent_type,
+                fts_query, project=project, agent_type=agent_type,
                 days=days, role=role, limit=limit,
             )
         elif mode == "semantic":
@@ -52,8 +54,12 @@ class SearchEngine:
             if result.id in seen_ids:
                 continue
             seen_ids.add(result.id)
-            fragment = self.store.get_context(result.id, window=CONTEXT_WINDOW)
-            fragments.append(fragment)
+            try:
+                fragment = self.store.get_context(result.id, window=CONTEXT_WINDOW)
+                fragments.append(fragment)
+            except ValueError:
+                # Stale ID from vector store — skip silently
+                continue
 
         return fragments[:limit]
 
@@ -70,7 +76,9 @@ class SearchEngine:
         k = 60  # RRF constant
         filters = dict(project=project, agent_type=agent_type, days=days, role=role)
 
-        keyword_results = self.store.search(query, **filters, limit=20)
+        # FTS5 default is AND — use OR for natural language queries
+        fts_query = " OR ".join(query.split())
+        keyword_results = self.store.search(fts_query, **filters, limit=20)
         semantic_results = (
             self.vector_store.search(query, **filters, limit=20)
             if self.vector_store else []
