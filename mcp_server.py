@@ -99,8 +99,8 @@ def search_sessions(
     for frag in fragments:
         match = frag.match
 
-        # Filter system role entries
-        if match.role == "system":
+        # Filter noise: system role + short content (metadata, "Tool loaded.", ".")
+        if match.role == "system" or len(match.content) < 50:
             continue
 
         ts = match.timestamp.strftime("%Y-%m-%d %H:%M")
@@ -126,7 +126,7 @@ def search_sessions(
         if len(results) >= limit:
             break
 
-    return results
+    return results if results else [{"info": f"No results for '{query}' in last {days} days"}]
 
 
 if __name__ == "__main__":
