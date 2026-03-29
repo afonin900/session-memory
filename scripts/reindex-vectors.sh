@@ -13,6 +13,6 @@ echo "$(date): Starting full vector reindex" >> "$LOG"
 sqlite3 "$DB" "DELETE FROM indexed_files;"
 
 # Запустить полную индексацию (с LanceDB)
-python3 "$CLI" index >> "$LOG" 2>&1
+/opt/homebrew/bin/python3 "$CLI" index >> "$LOG" 2>&1
 
 echo "$(date): Reindex complete" >> "$LOG"

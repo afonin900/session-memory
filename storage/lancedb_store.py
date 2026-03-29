@@ -30,13 +30,27 @@ class LanceDBStore:
         self.embedder = embedder
         self._db = None
 
+    @staticmethod
+    def _list_table_names(db) -> list[str]:
+        """Return list of table name strings from db.list_tables().
+
+        Handles both old API (returns list[str]) and new API that returns
+        ListTablesResponse with a .tables attribute. Falls back to list()
+        conversion if neither matches — avoids iterating a dict-like object
+        which would produce (key, value) tuples instead of strings.
+        """
+        result = db.list_tables()
+        if hasattr(result, "tables"):
+            return result.tables  # new API: ListTablesResponse.tables is list[str]
+        if isinstance(result, list):
+            return result
+        return list(result)  # last-resort fallback
+
     def init_db(self):
         self.vectors_dir.mkdir(parents=True, exist_ok=True)
         self._db = lancedb.connect(str(self.vectors_dir))
         # Create table if not exists
-        existing = self._db.list_tables()
-        existing_names = existing.tables if hasattr(existing, "tables") else list(existing)
-        if TABLE_NAME not in existing_names:
+        if TABLE_NAME not in self._list_table_names(self._db):
             self._db.create_table(TABLE_NAME, schema=_SCHEMA)
 
     def reconnect(self):
@@ -48,9 +62,7 @@ class LanceDBStore:
 
     def drop_table(self):
         """Drop vector table completely. Use before bulk reindex to avoid fragmentation."""
-        existing = self._db.list_tables()
-        existing_names = existing.tables if hasattr(existing, "tables") else list(existing)
-        if TABLE_NAME in existing_names:
+        if TABLE_NAME in self._list_table_names(self._db):
             self._db.drop_table(TABLE_NAME)
         self._db.create_table(TABLE_NAME, schema=_SCHEMA)
 

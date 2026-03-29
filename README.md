@@ -8,7 +8,11 @@
 
 Search across your AI agent session logs — Claude Code, Codex, Gemini, Aider — by keyword or meaning.
 
-### What's New in v0.2
+### What's New in v0.2.1
+
+- **LanceDB API fix** — compatible with latest lancedb versions where `list_tables()` returns `ListTablesResponse` instead of `list[str]`
+
+### v0.2.0
 
 - **10x faster cold start** — ONNX Runtime replaces PyTorch (0.8s vs 3s)
 - **Noise filter** — 42% less noise in semantic search (tool_use, system messages filtered from vectors)
@@ -100,7 +104,7 @@ python3 cli.py search "query" --limit 20
 
 ```bash
 python3 cli.py stats
-# Total entries: 142831
+# Total entries: 252000
 # By project: kfs: 89012  hq: 31045  jh: 14200 ...
 # By agent:   claude: 138000  codex: 4831 ...
 ```
@@ -212,7 +216,11 @@ Requires Python 3.10+. Semantic search uses ONNX Runtime for fast inference (~26
 
 Полнотекстовый и семантический поиск по логам AI-агентов — Claude Code, Codex, Gemini, Aider.
 
-### Что нового в v0.2
+### Что нового в v0.2.1
+
+- **Исправление API LanceDB** — совместимость с новыми версиями lancedb, где `list_tables()` возвращает `ListTablesResponse` вместо `list[str]`
+
+### v0.2.0
 
 - **Холодный старт в 10 раз быстрее** — ONNX Runtime вместо PyTorch (0.8 сек vs 3 сек)
 - **Фильтр шума** — 42% меньше шума при семантическом поиске (tool_use, системные сообщения отфильтрованы)
@@ -304,7 +312,7 @@ python3 cli.py search "запрос" --limit 20
 
 ```bash
 python3 cli.py stats
-# Total entries: 142831
+# Total entries: 252000
 # By project: kfs: 89012  hq: 31045  jh: 14200 ...
 # By agent:   claude: 138000  codex: 4831 ...
 ```
