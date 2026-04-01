@@ -231,6 +231,38 @@ class SqliteFtsStore:
     def count_entries(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM sessions_log").fetchone()[0]
 
+    def get_entries_by_ids(self, ids: list[int]) -> list:
+        """Return list of (id, LogEntry) tuples for the given SQLite row IDs.
+
+        Used by incremental vector indexing to fetch only newly inserted entries.
+        Content is truncated to 1000 chars — same as get_entries_batch.
+        """
+        if not ids:
+            return []
+        from storage.models import LogEntry
+        placeholders = ",".join("?" * len(ids))
+        rows = self._conn.execute(
+            f"SELECT id, agent_type, project, session_id, role, SUBSTR(content, 1, 1000) as content, "
+            f"timestamp, file_paths, issue_numbers, source_file "
+            f"FROM sessions_log WHERE id IN ({placeholders}) ORDER BY id",
+            ids,
+        ).fetchall()
+        result = []
+        for row in rows:
+            entry = LogEntry(
+                agent_type=row["agent_type"],
+                project=row["project"],
+                session_id=row["session_id"],
+                role=row["role"],
+                content=row["content"],
+                timestamp=datetime.fromisoformat(row["timestamp"]),
+                file_paths=json.loads(row["file_paths"]),
+                issue_numbers=json.loads(row["issue_numbers"]),
+                source_file=row["source_file"],
+            )
+            result.append((row["id"], entry))
+        return result
+
     def get_entries_batch(self, offset: int, limit: int) -> list:
         """Return list of (id, LogEntry) tuples for vector indexing.
 

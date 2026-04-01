@@ -54,11 +54,17 @@ class LanceDBStore:
             self._db.create_table(TABLE_NAME, schema=_SCHEMA)
 
     def reconnect(self):
-        """Drop and reopen LanceDB connection to flush Arrow memory pools."""
+        """Drop and reopen LanceDB connection to flush Arrow memory pools, then compact."""
         self._db = None
         gc.collect()
         pa.default_memory_pool().release_unused()
         self._db = lancedb.connect(str(self.vectors_dir))
+        try:
+            table = self._get_table()
+            table.compact_files()
+            table.cleanup_old_versions()
+        except Exception:
+            pass
 
     def drop_table(self):
         """Drop vector table completely. Use before bulk reindex to avoid fragmentation."""

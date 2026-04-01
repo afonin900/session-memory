@@ -31,8 +31,12 @@ class OnnxEmbedder:
                     "Run: python3 scripts/export_onnx.py"
                 )
 
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = 4
+            opts.inter_op_num_threads = 1
             OnnxEmbedder._session = ort.InferenceSession(
                 str(ONNX_MODEL_PATH),
+                sess_options=opts,
                 providers=["CPUExecutionProvider"],
             )
             OnnxEmbedder._tokenizer = Tokenizer.from_pretrained(ONNX_TOKENIZER_NAME)

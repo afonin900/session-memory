@@ -2,6 +2,7 @@
 # cli.py — Session Memory CLI
 import argparse
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -143,6 +144,13 @@ def cmd_stats(args):
 
 
 def main():
+    def _handle_signal(signum, frame):
+        print(f"\nReceived signal {signum}, shutting down...")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
     parser = argparse.ArgumentParser(
         prog="sm",
         description="Session Memory — search across AI agent session logs",

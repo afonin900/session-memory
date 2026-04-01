@@ -54,6 +54,12 @@ class Indexer:
         files_indexed = 0
         entries_added = 0
 
+        # Drop and recreate vector table to eliminate fragmentation (15K+ version files, 7K deletions)
+        if self.vector_store:
+            print("Dropping vector table for clean full reindex...")
+            self.vector_store.drop_table()
+            print("Vector table dropped and recreated.")
+
         # Phase 1: SQLite FTS only (light, no embeddings)
         for parser, path in self._discover_all():
             if not path.exists():
@@ -61,8 +67,7 @@ class Indexer:
             mtime = path.stat().st_mtime
 
             self.store.delete_by_source(str(path))
-            if self.vector_store:
-                self.vector_store.delete_by_source(str(path))
+            # No need to delete from vector_store — table was already dropped above
 
             entries = parser.parse_session(path)
             if entries:
@@ -80,20 +85,40 @@ class Indexer:
 
         return {"files_indexed": files_indexed, "entries_added": entries_added}
 
-    def _index_vectors_inprocess(self, chunk_size: int = 250):
-        """Embed all entries in-process with memory management.
+    def _index_vectors_inprocess(self, chunk_size: int = 250, entry_ids: list[int] | None = None):
+        """Embed entries in-process with memory management.
 
         Single model load, processes in chunks of 250 entries.
         gc.collect every 2.5k, LanceDB reconnect every 5k, hard ceiling at 1GB RSS.
+
+        Args:
+            chunk_size: Number of entries per embedding batch.
+            entry_ids: If provided, only embed these SQLite row IDs (incremental mode).
+                       If None, embed all entries in the store (full reindex mode).
         """
-        total = self.store.count_entries()
-        print(f"Phase 2 (vectors): {total} entries to embed")
+        if entry_ids is not None:
+            # Incremental mode: fetch only the specified IDs
+            total = len(entry_ids)
+            print(f"Phase 2 (vectors): {total} new entries to embed")
+
+            def _iter_batches():
+                for start in range(0, total, chunk_size):
+                    batch_ids = entry_ids[start:start + chunk_size]
+                    yield self.store.get_entries_by_ids(batch_ids)
+        else:
+            # Full reindex mode: iterate all entries via OFFSET/LIMIT
+            total = self.store.count_entries()
+            print(f"Phase 2 (vectors): {total} entries to embed")
+
+            def _iter_batches():
+                for offset in range(0, total, chunk_size):
+                    yield self.store.get_entries_batch(offset, chunk_size)
+
         t0 = time.time()
         embedded_total = 0
 
-        for offset in range(0, total, chunk_size):
+        for rows in _iter_batches():
             batch_t0 = time.time()
-            rows = self.store.get_entries_batch(offset, chunk_size)
             # Filter noise before embedding
             rows = [(id_, entry) for id_, entry in rows if should_index_vector(entry)]
             if not rows:
@@ -141,19 +166,30 @@ class Indexer:
         print(f"Phase 2 complete: {embedded_total} entries in {total_time/60:.1f} min")
 
     def index_incremental(self) -> dict:
-        """Incremental index — only new or changed files."""
+        """Incremental index — only new or changed files.
+
+        Two-phase approach (mirrors index_full):
+        - Phase 1: SQLite FTS only — parse + insert entries, no embeddings.
+        - Phase 2: Vector embeddings in batches of 250 via _index_vectors_inprocess,
+                   passing only the IDs of newly inserted entries so existing vectors
+                   are not duplicated in LanceDB.
+        """
         files_indexed = 0
         files_skipped = 0
         entries_added = 0
+        new_entry_ids: list[int] = []
 
+        # Phase 1: FTS only (light, no embeddings)
         for parser, path in self._discover_all():
+            if not path.exists():
+                continue
             mtime = path.stat().st_mtime
 
             if self.store.is_indexed(str(path), mtime):
                 files_skipped += 1
                 continue
 
-            # Re-index changed file
+            # Re-index changed/new file
             self.store.delete_by_source(str(path))
             if self.vector_store:
                 self.vector_store.delete_by_source(str(path))
@@ -161,13 +197,16 @@ class Indexer:
             entries = parser.parse_session(path)
             if entries:
                 ids = self.store.insert_entries(entries)
-                if self.vector_store:
-                    filtered = [(e, i) for e, i in zip(entries, ids) if should_index_vector(e)]
-                    if filtered:
-                        f_entries, f_ids = zip(*filtered)
-                        self.vector_store.insert_entries(list(f_entries), list(f_ids))
+                new_entry_ids.extend(ids)
                 entries_added += len(entries)
             self.store.mark_indexed(str(path), mtime, len(entries))
             files_indexed += 1
+            del entries
+
+        print(f"Phase 1 (FTS) complete: {files_indexed} files, {entries_added} entries")
+
+        # Phase 2: Vector embeddings for new entries only (single model load)
+        if self.vector_store and new_entry_ids:
+            self._index_vectors_inprocess(entry_ids=new_entry_ids)
 
         return {"files_indexed": files_indexed, "files_skipped": files_skipped, "entries_added": entries_added}
