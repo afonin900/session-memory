@@ -1,4 +1,7 @@
 #!/bin/bash
+echo "WARNING: Full reindex — use only for initial setup or migration"
+echo "For normal operation, sessions are indexed incrementally on session start"
+
 # Полная переиндексация с векторами
 # Сбрасывает indexed_files чтобы пересоздать LanceDB индекс
 # Запускать когда векторный индекс пуст или устарел
