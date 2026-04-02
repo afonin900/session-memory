@@ -96,6 +96,8 @@ class Indexer:
             entry_ids: If provided, only embed these SQLite row IDs (incremental mode).
                        If None, embed all entries in the store (full reindex mode).
         """
+        existing_ids: set[int] = set()
+
         if entry_ids is not None:
             # Incremental mode: fetch only the specified IDs
             total = len(entry_ids)
@@ -108,6 +110,9 @@ class Indexer:
         else:
             # Full reindex mode: iterate all entries via OFFSET/LIMIT
             total = self.store.count_entries()
+            existing_ids = self.vector_store.get_existing_ids()
+            if existing_ids:
+                print(f"Skipping {len(existing_ids)} already embedded entries, {total - len(existing_ids)} remaining")
             print(f"Phase 2 (vectors): {total} entries to embed")
 
             def _iter_batches():
@@ -119,6 +124,9 @@ class Indexer:
 
         for rows in _iter_batches():
             batch_t0 = time.time()
+            # In full reindex mode, skip entries already in LanceDB
+            if entry_ids is None and existing_ids:
+                rows = [(id_, entry) for id_, entry in rows if id_ not in existing_ids]
             # Filter noise before embedding
             rows = [(id_, entry) for id_, entry in rows if should_index_vector(entry)]
             if not rows:

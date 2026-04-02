@@ -32,7 +32,7 @@ class OnnxEmbedder:
                 )
 
             opts = ort.SessionOptions()
-            opts.intra_op_num_threads = 4
+            opts.intra_op_num_threads = 2
             opts.inter_op_num_threads = 1
             OnnxEmbedder._session = ort.InferenceSession(
                 str(ONNX_MODEL_PATH),

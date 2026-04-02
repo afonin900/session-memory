@@ -165,6 +165,15 @@ class LanceDBStore:
             ))
         return results
 
+    def get_existing_ids(self) -> set[int]:
+        """Return set of all SQLite IDs already stored in LanceDB."""
+        try:
+            table = self._get_table()
+            df = table.to_pandas(columns=["id"])
+            return set(df["id"].tolist())
+        except Exception:
+            return set()
+
     def delete_by_source(self, source_file: str):
         """Delete all vectors from a source file."""
         table = self._get_table()
