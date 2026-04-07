@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-07
+
+### Added
+- `--fts-only` CLI flag — lightweight FTS indexing without ONNX/vector imports (<0.5 sec)
+- `--vectors-bg` CLI flag — background vector embeddings with fcntl lock file protection
+- `--skip-recent MINUTES` CLI flag — skip files modified within last N minutes (default: 60)
+- mtime filter to skip active session files (prevents re-indexing files being written to)
+- Lock file mechanism (`fcntl.flock`) to prevent parallel vector indexing processes
+
+### Changed
+- Session-start hooks now use two-phase indexing: instant FTS sync + delayed vectors background
+- Split skip counters in `index_fts_only`: `files_skipped_recent` vs `files_skipped_unchanged`
+
+### Fixed
+- Session start no longer loads ONNX model (was: 764 MB RAM, 24+ sec per session start)
+- Active session JSONL files no longer trigger unnecessary re-indexing
+
 ## [0.2.1] - 2026-03-29
 
 ### Fixed
@@ -53,7 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-agent support: Codex parser, agent filter, integration tests
 - `CLAUDE.md` with usage, architecture, and extension guide
 
-[Unreleased]: https://github.com/afonin900/session-memory/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/afonin900/session-memory/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/afonin900/session-memory/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/afonin900/session-memory/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/afonin900/session-memory/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/afonin900/session-memory/releases/tag/v0.1.0
