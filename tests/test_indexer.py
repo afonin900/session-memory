@@ -167,8 +167,11 @@ def test_index_fts_only_skips_recent_files():
         indexer = Indexer(store=store, claude_logs_base=logs_base)
 
         stats = indexer.index_fts_only(skip_recent_minutes=60)
-        assert stats["files_indexed"] == 0
+        # The test file was just written (recent) — it must be skipped
         assert stats["files_skipped_recent"] >= 1
+        # Verify the test session file specifically was NOT indexed (search returns nothing for test-only data)
+        results = store.search("docker")
+        assert len(results) == 0
         store.close()
 
 

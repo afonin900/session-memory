@@ -227,3 +227,40 @@ class Indexer:
             self._index_vectors_inprocess(entry_ids=new_entry_ids)
 
         return {"files_indexed": files_indexed, "files_skipped": files_skipped, "entries_added": entries_added}
+
+    def index_fts_only(self, skip_recent_minutes: int = 60) -> dict:
+        """Phase 1 only: FTS indexing, skip recent files, no vector store needed."""
+        files_indexed = 0
+        files_skipped_recent = 0
+        files_skipped_unchanged = 0
+        entries_added = 0
+
+        for parser, path in self._discover_all():
+            if not path.exists():
+                continue
+
+            if self._should_skip_file(path, skip_recent_minutes):
+                files_skipped_recent += 1
+                continue
+
+            mtime = path.stat().st_mtime
+
+            if self.store.is_indexed(str(path), mtime):
+                files_skipped_unchanged += 1
+                continue
+
+            self.store.delete_by_source(str(path))
+            entries = parser.parse_session(path) or []
+            if entries:
+                self.store.insert_entries(entries)
+                entries_added += len(entries)
+            self.store.mark_indexed(str(path), mtime, len(entries))
+            files_indexed += 1
+            del entries
+
+        return {
+            "files_indexed": files_indexed,
+            "files_skipped_recent": files_skipped_recent,
+            "files_skipped_unchanged": files_skipped_unchanged,
+            "entries_added": entries_added,
+        }
