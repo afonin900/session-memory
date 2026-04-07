@@ -71,27 +71,57 @@ def _format_fragment(frag, show_context=True):
 
 def cmd_index(args):
     store = _get_store()
-    vstore = _get_vector_store()
-    indexer = _get_indexer(store, rss_ceiling_mb=getattr(args, "max_memory", None))
-    indexer.vector_store = vstore
-    if args.vectors_only:
+
+    if args.fts_only:
+        # Phase 1 only: no vector store, no heavy imports
+        indexer = _get_indexer(store)
+        stats = indexer.index_fts_only(skip_recent_minutes=args.skip_recent)
+        print(f"FTS-only indexing complete:")
+        print(f"  Indexed: {stats['files_indexed']} files, {stats['entries_added']} entries")
+        print(f"  Skipped: {stats['files_skipped_unchanged']} unchanged, {stats['files_skipped_recent']} active")
+    elif args.vectors_bg:
+        # Phase 2 only: vectors with lock
+        vstore = _get_vector_store()
         if not vstore:
             print("Error: vector store not available (missing dependencies?)")
+            store.close()
             return
+        indexer = _get_indexer(store, rss_ceiling_mb=args.max_memory)
+        indexer.vector_store = vstore
+        result = indexer.index_vectors_bg(skip_recent_minutes=args.skip_recent)
+        if result["status"] == "locked":
+            print("Another vectors process is running, skipping.")
+        elif result["status"] == "completed":
+            print("Background vector indexing complete.")
+        else:
+            print(f"Vector indexing status: {result['status']}")
+    elif args.vectors_only or getattr(args, "resume", False):
+        vstore = _get_vector_store()
+        if not vstore:
+            print("Error: vector store not available (missing dependencies?)")
+            store.close()
+            return
+        indexer = _get_indexer(store, rss_ceiling_mb=args.max_memory)
+        indexer.vector_store = vstore
         indexer._index_vectors_inprocess()
         print("Vectors-only indexing complete.")
     elif args.quick:
+        vstore = _get_vector_store()
+        indexer = _get_indexer(store, rss_ceiling_mb=args.max_memory)
+        indexer.vector_store = vstore
         stats = indexer.index_incremental()
-        mode = "Incremental"
-        print(f"{mode} indexing complete:")
+        print(f"Incremental indexing complete:")
         print(f"  Indexed: {stats['files_indexed']} files, {stats['entries_added']} entries")
         if "files_skipped" in stats:
             print(f"  Skipped: {stats['files_skipped']} unchanged files")
     else:
+        vstore = _get_vector_store()
+        indexer = _get_indexer(store, rss_ceiling_mb=args.max_memory)
+        indexer.vector_store = vstore
         stats = indexer.index_full()
-        mode = "Full"
-        print(f"{mode} indexing complete:")
+        print(f"Full indexing complete:")
         print(f"  Indexed: {stats['files_indexed']} files, {stats['entries_added']} entries")
+
     store.close()
 
 
@@ -161,8 +191,16 @@ def main():
     p_index = sub.add_parser("index", help="Index session logs")
     p_index.add_argument("--quick", action="store_true", help="Incremental (new files only)")
     p_index.add_argument("--vectors-only", action="store_true", help="Skip FTS, only build vector embeddings from existing entries")
-    p_index.add_argument("--max-memory", type=int, default=1024, metavar="MB",
-                         help="RSS ceiling in MB before forced cleanup (default: 1024)")
+    p_index.add_argument("--resume", action="store_true",
+                         help="Resume incomplete vector indexing — skips already-embedded entries (alias for --vectors-only)")
+    p_index.add_argument("--max-memory", type=int, default=1500, metavar="MB",
+                         help="RSS ceiling in MB before forced cleanup (default: 1500)")
+    p_index.add_argument("--fts-only", action="store_true",
+                         help="Phase 1 only: FTS indexing, no vectors, no heavy imports")
+    p_index.add_argument("--vectors-bg", action="store_true",
+                         help="Phase 2 only: vector embeddings with lock file (for background use)")
+    p_index.add_argument("--skip-recent", type=int, default=60, metavar="MINUTES",
+                         help="Skip files modified within last N minutes (default: 60)")
     p_index.set_defaults(func=cmd_index)
 
     # search
