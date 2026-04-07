@@ -95,7 +95,7 @@ def cmd_index(args):
             print("Background vector indexing complete.")
         else:
             print(f"Vector indexing status: {result['status']}")
-    elif args.vectors_only or getattr(args, "resume", False):
+    elif args.vectors_only or args.resume:
         vstore = _get_vector_store()
         if not vstore:
             print("Error: vector store not available (missing dependencies?)")

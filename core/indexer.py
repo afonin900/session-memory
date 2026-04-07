@@ -97,7 +97,7 @@ class Indexer:
     def _index_vectors_inprocess(self, chunk_size: int = 100, entry_ids: list[int] | None = None):
         """Embed entries in-process with memory management.
 
-        Single model load, processes in chunks of 250 entries.
+        Single model load, processes in chunks of 100 entries.
         gc.collect every 2.5k, LanceDB reconnect every 5k, hard ceiling at 1GB RSS.
 
         Args:
