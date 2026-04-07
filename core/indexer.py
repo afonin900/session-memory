@@ -264,3 +264,56 @@ class Indexer:
             "files_skipped_unchanged": files_skipped_unchanged,
             "entries_added": entries_added,
         }
+
+    def index_vectors_bg(
+        self,
+        lock_path: str = "/tmp/session-memory-vectors.lock",
+        skip_recent_minutes: int = 60,
+    ) -> dict:
+        """Phase 2 only: vector embeddings with lock file protection.
+
+        Acquires exclusive lock. If another process holds it, exits silently.
+        Skips files modified within skip_recent_minutes.
+        """
+        if not self.vector_store:
+            return {"status": "no_vector_store"}
+
+        lock_file = open(lock_path, "w")
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, OSError):
+            lock_file.close()
+            return {"status": "locked"}
+
+        try:
+            # FTS for any files not yet indexed (skip recent)
+            new_entry_ids: list[int] = []
+            for parser, path in self._discover_all():
+                if not path.exists():
+                    continue
+                if self._should_skip_file(path, skip_recent_minutes):
+                    continue
+                mtime = path.stat().st_mtime
+                if self.store.is_indexed(str(path), mtime):
+                    continue
+
+                self.store.delete_by_source(str(path))
+                self.vector_store.delete_by_source(str(path))
+                entries = parser.parse_session(path) or []
+                if entries:
+                    ids = self.store.insert_entries(entries)
+                    new_entry_ids.extend(ids)
+                self.store.mark_indexed(str(path), mtime, len(entries))
+                del entries
+
+            # Embed entries not yet in LanceDB
+            if new_entry_ids:
+                self._index_vectors_inprocess(entry_ids=new_entry_ids)
+            else:
+                # Gap from prior FTS-only runs — embed all unembedded entries
+                self._index_vectors_inprocess()
+
+            return {"status": "completed"}
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+            lock_file.close()
