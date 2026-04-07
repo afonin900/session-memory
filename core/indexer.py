@@ -1,3 +1,4 @@
+import fcntl
 import gc
 import os
 import subprocess
@@ -49,6 +50,14 @@ class Indexer:
             for path in parser.discover_sessions():
                 yield parser, path
 
+    def _should_skip_file(self, path: Path, skip_recent_minutes: int = 60) -> bool:
+        """Skip files modified within the last N minutes (likely active sessions)."""
+        try:
+            age_seconds = time.time() - path.stat().st_mtime
+            return age_seconds < skip_recent_minutes * 60
+        except OSError:
+            return True  # skip if we can't stat the file
+
     def index_full(self) -> dict:
         """Full reindex — Phase 1: SQLite FTS, Phase 2: vectors in-process."""
         files_indexed = 0
@@ -85,7 +94,7 @@ class Indexer:
 
         return {"files_indexed": files_indexed, "entries_added": entries_added}
 
-    def _index_vectors_inprocess(self, chunk_size: int = 250, entry_ids: list[int] | None = None):
+    def _index_vectors_inprocess(self, chunk_size: int = 100, entry_ids: list[int] | None = None):
         """Embed entries in-process with memory management.
 
         Single model load, processes in chunks of 250 entries.
