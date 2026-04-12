@@ -323,6 +323,87 @@ def cmd_sleep_hook(args):
     print(json_mod.dumps({"status": result["status"]}))
 
 
+def cmd_graph(args):
+    store = _get_store()
+    from core.graph import build_graph_edges, get_related
+    from config import KNOWLEDGE_BASE
+
+    if args.build:
+        result = build_graph_edges(store, KNOWLEDGE_BASE)
+        print(f"Graph built: {result['edges_created']} edges from {result['files_processed']} files")
+    elif args.related:
+        related = get_related(store, args.related)
+        if related:
+            print(f"Related to {args.related}:")
+            for r in related:
+                print(f"  -> {r['slug']} ({r['file'] or 'unresolved'})")
+        else:
+            print("No related documents found.")
+    else:
+        try:
+            count = store._conn.execute("SELECT COUNT(*) FROM graph_edges").fetchone()[0]
+            print(f"Graph edges: {count}")
+        except Exception:
+            print("Graph not built. Run: sm graph --build")
+
+    store.close()
+
+
+def cmd_status(args):
+    """Check session-memory setup and hooks configuration."""
+    import json as json_mod
+
+    print("=== Session Memory Status ===\n")
+
+    # Check hooks
+    settings_paths = [
+        Path.home() / ".claude" / "settings.json",
+        Path.cwd() / ".claude" / "settings.json",
+        Path.cwd() / ".claude" / "settings.local.json",
+    ]
+
+    hooks_found = False
+    for sp in settings_paths:
+        if sp.exists():
+            try:
+                data = json_mod.loads(sp.read_text())
+                hooks = data.get("hooks", {})
+                if "SessionStart" in hooks or "SessionEnd" in hooks:
+                    print(f"Hooks configured: {sp}")
+                    for event in ["SessionStart", "SessionEnd"]:
+                        if event in hooks:
+                            cmds = [h.get("command", "?") for rule in hooks[event] for h in rule.get("hooks", [])]
+                            print(f"  {event}: {', '.join(cmds)}")
+                    hooks_found = True
+            except (json_mod.JSONDecodeError, KeyError):
+                pass
+
+    if not hooks_found:
+        print("No hooks configured.")
+        print("  Fix: run `sm init` in your project, or add hooks manually to settings.json")
+        print("  Fallback: run `sm wake` and `sm sleep` manually via Bash tool")
+
+    # Check SESSION.md
+    session_file = Path.cwd() / ".claude" / "SESSION.md"
+    print(f"\nSESSION.md: {'exists' if session_file.exists() else 'not found'}")
+
+    # Check Knowledge
+    from config import KNOWLEDGE_BASE
+    if KNOWLEDGE_BASE.exists():
+        md_count = len(list(KNOWLEDGE_BASE.rglob("*.md")))
+        print(f"Knowledge base: {KNOWLEDGE_BASE} ({md_count} files)")
+    else:
+        print(f"Knowledge base: not found ({KNOWLEDGE_BASE})")
+
+    # Check database
+    from config import SQLITE_PATH
+    if SQLITE_PATH.exists():
+        size_mb = SQLITE_PATH.stat().st_size / 1024 / 1024
+        print(f"Database: {SQLITE_PATH} ({size_mb:.1f} MB)")
+    else:
+        print(f"Database: not found ({SQLITE_PATH})")
+
+
 def cmd_observe(args):
     if args.full:
         from core.observe import observe_full
@@ -438,6 +519,16 @@ def main():
     p_observe.add_argument("--full", action="store_true", help="LLM extraction via OpenRouter")
     p_observe.add_argument("--save", action="store_true", help="Save extracted facts to ~/Knowledge/")
     p_observe.set_defaults(func=cmd_observe)
+
+    # graph
+    p_graph = sub.add_parser("graph", help="Knowledge graph operations")
+    p_graph.add_argument("--build", action="store_true", help="Build/rebuild graph from wiki-links")
+    p_graph.add_argument("--related", help="Find documents related to file path")
+    p_graph.set_defaults(func=cmd_graph)
+
+    # status
+    p_status = sub.add_parser("status", help="Check session-memory setup and hooks")
+    p_status.set_defaults(func=cmd_status)
 
     args = parser.parse_args()
     args.func(args)
