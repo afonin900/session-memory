@@ -1,7 +1,11 @@
 # core/search.py
+from datetime import datetime, timezone
 from storage.sqlite_fts import SqliteFtsStore, _FTS5_OPERATORS
 from storage.models import SessionFragment
 from config import DEFAULT_SEARCH_LIMIT, CONTEXT_WINDOW
+
+# Recency decay: half-life in days. Results older than this get halved recency boost.
+RECENCY_HALF_LIFE_DAYS = 14
 
 
 def _has_fts5_operators(query: str) -> bool:
@@ -135,6 +139,20 @@ class SearchEngine:
         all_results.update({r.id: r for r in semantic_results})
         all_results.update({r.id: r for r in knowledge_results})
 
-        # Sort by RRF score
+        # Recency boost: newer results get higher score
+        now = datetime.now(timezone.utc)
+        for rid, result in all_results.items():
+            try:
+                ts = result.timestamp
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                age_days = max(0, (now - ts).days)
+                # Exponential decay: halves every RECENCY_HALF_LIFE_DAYS
+                recency = 1.0 / (1 + age_days / RECENCY_HALF_LIFE_DAYS)
+                scores[rid] = scores.get(rid, 0) + recency * 0.01
+            except (TypeError, AttributeError):
+                pass
+
+        # Sort by RRF score (with recency boost)
         sorted_ids = sorted(scores, key=lambda x: scores[x], reverse=True)
         return [all_results[i] for i in sorted_ids]
