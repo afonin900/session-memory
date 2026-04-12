@@ -187,6 +187,24 @@ def cmd_init(args):
     print(f"  Knowledge: {results['knowledge_dir']}")
 
 
+def cmd_wake(args):
+    import json as json_mod
+    from core.lifecycle import wake
+    result = wake(project=args.project)
+
+    if args.hook:
+        hook_output = {
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": result["context"],
+            }
+        }
+        print(json_mod.dumps(hook_output))
+    else:
+        print(result["context"])
+        print(f"\n[status: {result['status']}]")
+
+
 def main():
     def _handle_signal(signum, frame):
         print(f"\nReceived signal {signum}, shutting down...")
@@ -239,6 +257,12 @@ def main():
                          help="Project profile (default: software)")
     p_init.add_argument("--project-name", help="Project name (default: directory name)")
     p_init.set_defaults(func=cmd_init)
+
+    # wake
+    p_wake = sub.add_parser("wake", help="Load session context (run at session start)")
+    p_wake.add_argument("-p", "--project", help="Project name")
+    p_wake.add_argument("--hook", action="store_true", help="Output JSON for Claude Code hook")
+    p_wake.set_defaults(func=cmd_wake)
 
     args = parser.parse_args()
     args.func(args)

@@ -1,6 +1,7 @@
 # core/lifecycle.py — Wake/Sleep/Init lifecycle management
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -104,3 +105,67 @@ def init_project(project_name: str, profile: str = "software") -> dict:
     results["knowledge_dir"] = str(kb_dir)
 
     return results
+
+
+LOCK_TIMEOUT_MINUTES = 30
+
+
+def wake(project: str | None = None, cwd: str | None = None) -> dict:
+    """Generate session briefing from SESSION.md.
+
+    Returns dict with:
+      - context: str (briefing text for agent)
+      - status: str (normal|crash_recovery|new|no_session)
+      - session_file: str (path to SESSION.md)
+    """
+    work_dir = Path(cwd) if cwd else Path.cwd()
+    project_name = project or work_dir.name
+    session_file = work_dir / ".claude" / "SESSION.md"
+
+    if not session_file.exists():
+        return {
+            "context": f"No SESSION.md found. Run: sm init --project-name {project_name}",
+            "status": "no_session",
+            "session_file": str(session_file),
+        }
+
+    content = session_file.read_text()
+
+    # Check for crash recovery via status field
+    status_match = re.search(r"^status:\s*(.+)$", content, re.MULTILINE)
+    current_status = status_match.group(1).strip() if status_match else "unknown"
+
+    if current_status == "in_progress":
+        briefing = f"⚠️ CRASH RECOVERY: Предыдущая сессия не завершилась корректно.\n\n{content}"
+        result_status = "crash_recovery"
+    elif current_status == "new":
+        briefing = f"Новый проект. Нет данных предыдущей сессии.\n\n{content}"
+        result_status = "new"
+    else:
+        briefing = content
+        result_status = "normal"
+
+    # Set status to in_progress
+    new_content = re.sub(
+        r"^status:\s*.+$",
+        "status: in_progress",
+        content,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    session_file.write_text(new_content)
+
+    # Create session lock
+    lock_file = work_dir / ".claude" / "session.lock"
+    lock_data = {
+        "pid": os.getpid(),
+        "started": datetime.now(timezone.utc).isoformat(),
+        "project": project_name,
+    }
+    lock_file.write_text(json.dumps(lock_data))
+
+    return {
+        "context": briefing,
+        "status": result_status,
+        "session_file": str(session_file),
+    }
