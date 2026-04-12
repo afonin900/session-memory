@@ -1,6 +1,7 @@
 import json
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 from core.observe import observe_fast, save_facts_to_knowledge
 
 
@@ -76,3 +77,34 @@ def test_save_facts_to_knowledge(tmp_path):
     finally:
         config.KNOWLEDGE_BASE = old_kb
         core.observe.KNOWLEDGE_BASE = original
+
+
+def test_observe_full_calls_llm(tmp_path):
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript([
+        {"content": "Обсудили стратегию и решили фокусироваться на Instagram как основной канал"},
+    ], transcript)
+
+    mock_response = json.dumps([
+        {"type": "decision", "content": "Фокус на Instagram как основной канал маркетинга"},
+    ])
+
+    with patch("core.llm.call_llm", return_value=mock_response):
+        from core.observe import observe_full
+        facts = observe_full(str(transcript), project="kfs")
+        assert len(facts) >= 1
+        assert facts[0]["type"] == "decision"
+        assert "Instagram" in facts[0]["content"]
+
+
+def test_observe_full_fallback_on_failure(tmp_path):
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript([
+        {"content": "Решение: использовать три канала для продвижения продуктов"},
+    ], transcript)
+
+    with patch("core.llm.call_llm", return_value=None):
+        from core.observe import observe_full
+        facts = observe_full(str(transcript), project="kfs")
+        # Should fall back to observe_fast
+        assert len(facts) >= 1

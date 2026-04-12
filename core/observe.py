@@ -96,6 +96,80 @@ def observe_fast(transcript_path: str, project: str = "global") -> list[dict]:
     return facts
 
 
+_OBSERVE_PROMPT = """Извлеки факты, решения и уроки из этого лога сессии AI-агента.
+
+Для каждого найденного элемента верни JSON объект с полями:
+- type: "decision" | "fact" | "lesson"
+- content: краткая формулировка (1-2 предложения, на языке оригинала)
+
+Верни ТОЛЬКО JSON массив, без комментариев и markdown:
+[{"type": "decision", "content": "..."}, ...]
+
+Если ничего не найдено — верни пустой массив: []
+
+Лог сессии:
+"""
+
+
+def observe_full(transcript_path: str, project: str = "global") -> list[dict]:
+    """Extract facts from transcript using LLM via OpenRouter.
+
+    Falls back to observe_fast if LLM unavailable.
+    """
+    path = Path(transcript_path)
+    if not path.exists() or path.stat().st_size == 0:
+        return []
+
+    # Read and scrub transcript
+    try:
+        file_size = path.stat().st_size
+        max_bytes = 100_000  # ~25K tokens
+        with open(path, "rb") as f:
+            if file_size > max_bytes:
+                f.seek(-max_bytes, 2)
+                f.readline()
+            raw = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+
+    raw = scrub_secrets(raw)
+
+    # Call LLM
+    from core.llm import call_llm
+    response = call_llm(_OBSERVE_PROMPT + raw)
+
+    if not response:
+        return observe_fast(transcript_path, project)
+
+    # Parse response
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        # Extract JSON array from response
+        match = re.search(r"\[.*\]", response, re.DOTALL)
+        if not match:
+            return observe_fast(transcript_path, project)
+        items = json.loads(match.group())
+    except (json.JSONDecodeError, ValueError):
+        return observe_fast(transcript_path, project)
+
+    facts = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        fact_type = item.get("type", "fact")
+        fact_content = item.get("content", "")
+        if fact_type in ("decision", "fact", "lesson") and len(fact_content) > 10:
+            facts.append({
+                "type": fact_type,
+                "content": scrub_secrets(fact_content),
+                "source": transcript_path,
+                "date": today,
+                "project": project,
+            })
+
+    return facts
+
+
 def save_facts_to_knowledge(facts: list[dict]) -> int:
     """Save extracted facts as MD files in ~/Knowledge/{project}/."""
     saved = 0
