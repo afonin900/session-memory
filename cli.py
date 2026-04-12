@@ -432,6 +432,21 @@ def cmd_observe(args):
         print(f"\nSaved {saved} facts to ~/Knowledge/")
 
 
+def cmd_compact(args):
+    from core.compact import compact
+    result = compact(
+        project=args.project or Path.cwd().name,
+        period=args.period,
+        year=args.year,
+        month=args.month,
+    )
+    if result["status"] == "completed":
+        print(f"Digest saved: {result['digest_path']}")
+        print(f"  Files processed: {result['files_processed']}")
+    else:
+        print(f"Compact: {result.get('message', result['status'])}")
+
+
 def main():
     def _handle_signal(signum, frame):
         print(f"\nReceived signal {signum}, shutting down...")
@@ -529,6 +544,14 @@ def main():
     # status
     p_status = sub.add_parser("status", help="Check session-memory setup and hooks")
     p_status.set_defaults(func=cmd_status)
+
+    # compact
+    p_compact = sub.add_parser("compact", help="Hippocampus compaction — summarize knowledge")
+    p_compact.add_argument("-p", "--project", help="Project name")
+    p_compact.add_argument("--period", choices=["month", "quarter"], default="month")
+    p_compact.add_argument("--year", help="Year (default: current)")
+    p_compact.add_argument("--month", help="Month (default: previous)")
+    p_compact.set_defaults(func=cmd_compact)
 
     args = parser.parse_args()
     args.func(args)
