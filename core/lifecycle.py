@@ -99,8 +99,13 @@ def init_project(project_name: str, profile: str = "software") -> dict:
         else:
             results["skipped"].append(str(arch_path))
 
+    # Sanitize project name (Fix 1: path traversal protection)
+    safe_name = Path(project_name).name
+    if not safe_name or safe_name.startswith('.'):
+        return {"created": [], "skipped": [], "error": f"Invalid project name: {project_name!r}"}
+
     # Knowledge directory
-    kb_dir = KNOWLEDGE_BASE / project_name
+    kb_dir = KNOWLEDGE_BASE / safe_name
     kb_dir.mkdir(parents=True, exist_ok=True)
     results["knowledge_dir"] = str(kb_dir)
 
@@ -130,6 +135,19 @@ def wake(project: str | None = None, cwd: str | None = None) -> dict:
         }
 
     content = session_file.read_text()
+
+    # Check existing lock and clean up corrupted ones (Fix 6: LOCK_TIMEOUT_MINUTES)
+    lock_file = work_dir / ".claude" / "session.lock"
+    if lock_file.exists():
+        try:
+            lock_data_existing = json.loads(lock_file.read_text())
+            lock_time = datetime.fromisoformat(lock_data_existing["started"])
+            age_minutes = (datetime.now(timezone.utc) - lock_time).total_seconds() / 60
+            if age_minutes < LOCK_TIMEOUT_MINUTES:
+                # Active session exists
+                pass  # Will be detected by status: in_progress anyway
+        except (json.JSONDecodeError, KeyError, ValueError):
+            lock_file.unlink()  # corrupted lock, remove
 
     # Check for crash recovery via status field
     status_match = re.search(r"^status:\s*(.+)$", content, re.MULTILINE)
@@ -186,7 +204,16 @@ def _extract_from_transcript(transcript_path: str, last_n: int = 50) -> dict:
         return result
 
     try:
-        lines = Path(transcript_path).read_text().strip().split("\n")
+        file_path = Path(transcript_path)
+        file_size = file_path.stat().st_size
+        max_bytes = 524288  # 500KB max
+
+        with open(file_path, 'rb') as f:
+            if file_size > max_bytes:
+                f.seek(-max_bytes, 2)
+                f.readline()  # skip partial first line
+            content = f.read().decode('utf-8', errors='replace')
+        lines = content.strip().split("\n")
     except (OSError, UnicodeDecodeError):
         return result
 
@@ -260,8 +287,8 @@ def sleep(
 
     content = session_file.read_text()
 
-    # Check idempotency
-    if session_id and session_id in content:
+    # Check idempotency (Fix 4: stricter check)
+    if session_id and f"**Session ID:** {session_id}" in content:
         return {"status": "already_processed", "message": f"Session {session_id[:8]} already saved"}
 
     # Extract from transcript if available
@@ -291,8 +318,11 @@ def sleep(
     all_decisions = (new_decisions + existing_decisions)[:MAX_DECISIONS]
     decisions_text = "\n".join(all_decisions) if all_decisions else "—"
 
-    # Build tasks from not_done
-    tasks_text = "\n".join(f"- [ ] {t}" for t in extracted["not_done"][:10]) if extracted["not_done"] else "—"
+    # Preserve existing unchecked tasks + add new ones (Fix 5: idempotent tasks)
+    existing_tasks = re.findall(r"^- \[ \] .+$", content, re.MULTILINE)
+    new_tasks = [f"- [ ] {t}" for t in extracted["not_done"][:10]] if extracted["not_done"] else []
+    all_tasks = list(dict.fromkeys(new_tasks + existing_tasks))[:15]  # dedup, max 15
+    tasks_text = "\n".join(all_tasks) if all_tasks else "—"
 
     new_content = f"""# Session State
 
@@ -316,11 +346,12 @@ status: completed
 {tasks_text}
 """
 
-    # If user provided explicit summary, prepend it
+    # If user provided explicit summary, insert after Status (Fix 3: safe insertion)
     if summary:
         new_content = new_content.replace(
             "## Последняя сессия",
-            f"## Summary\n{summary}\n\n## Последняя сессия",
+            f"## Summary\n{summary.replace('#', '').strip()}\n\n## Последняя сессия",
+            1,  # only first occurrence
         )
 
     session_file.write_text(new_content)
