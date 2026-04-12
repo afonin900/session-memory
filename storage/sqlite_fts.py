@@ -144,6 +144,16 @@ class SqliteFtsStore:
         self._conn.executescript(_SCHEMA)
         self._conn.executescript(_TRIGGERS)
         self._conn.executescript(_KNOWLEDGE_SCHEMA)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS graph_edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_file TEXT NOT NULL,
+                source_project TEXT NOT NULL,
+                target_slug TEXT NOT NULL,
+                target_file TEXT,
+                UNIQUE(source_file, target_slug)
+            )
+        """)
         self._conn.commit()
 
     def close(self):

@@ -168,6 +168,7 @@ def cmd_search(args):
 def cmd_stats(args):
     store = _get_store()
     stats = store.stats()
+    print(f"=== Sessions ===")
     print(f"Total entries: {stats['total']}")
     if stats["by_project"]:
         print("\nBy project:")
@@ -177,6 +178,33 @@ def cmd_stats(args):
         print("\nBy agent:")
         for agent, cnt in sorted(stats["by_agent"].items(), key=lambda x: -x[1]):
             print(f"  {agent}: {cnt}")
+
+    # Knowledge stats
+    kstats = store.knowledge_stats()
+    if kstats["total"] > 0:
+        print(f"\n=== Knowledge Base ===")
+        print(f"Total files: {kstats['total']}")
+        if kstats["by_type"]:
+            print("\nBy type:")
+            for t, cnt in sorted(kstats["by_type"].items(), key=lambda x: -x[1]):
+                print(f"  {t}: {cnt}")
+        if kstats["by_project"]:
+            print("\nBy project:")
+            for p, cnt in sorted(kstats["by_project"].items(), key=lambda x: -x[1]):
+                print(f"  {p}: {cnt}")
+
+    # Wake/Sleep status
+    cwd = Path.cwd()
+    session_file = cwd / ".claude" / "SESSION.md"
+    if session_file.exists():
+        import re
+        content = session_file.read_text()
+        status_match = re.search(r"^status:\s*(.+)$", content, re.MULTILINE)
+        date_match = re.search(r"\*\*Дата:\*\*\s*(.+)$", content, re.MULTILINE)
+        print(f"\n=== Lifecycle ===")
+        print(f"Session status: {status_match.group(1).strip() if status_match else 'unknown'}")
+        print(f"Last session: {date_match.group(1).strip() if date_match else 'unknown'}")
+
     store.close()
 
 
