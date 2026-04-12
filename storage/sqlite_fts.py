@@ -46,8 +46,49 @@ END;
 """
 
 
+_KNOWLEDGE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS knowledge_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT NOT NULL UNIQUE,
+    project TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    doc_type TEXT NOT NULL DEFAULT 'doc',
+    tags TEXT DEFAULT '[]',
+    content TEXT NOT NULL,
+    date TEXT NOT NULL,
+    importance TEXT DEFAULT 'medium',
+    mtime REAL NOT NULL,
+    indexed_at DATETIME DEFAULT (datetime('now'))
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+    title, content, tags, project,
+    content=knowledge_files, content_rowid=id
+);
+
+CREATE TRIGGER IF NOT EXISTS knowledge_files_ai AFTER INSERT ON knowledge_files BEGIN
+    INSERT INTO knowledge_fts(rowid, title, content, tags, project)
+    VALUES (new.id, new.title, new.content, new.tags, new.project);
+END;
+
+CREATE TRIGGER IF NOT EXISTS knowledge_files_ad AFTER DELETE ON knowledge_files BEGIN
+    INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content, tags, project)
+    VALUES ('delete', old.id, old.title, old.content, old.tags, old.project);
+END;
+
+CREATE TRIGGER IF NOT EXISTS knowledge_files_au AFTER UPDATE ON knowledge_files BEGIN
+    INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content, tags, project)
+    VALUES ('delete', old.id, old.title, old.content, old.tags, old.project);
+    INSERT INTO knowledge_fts(rowid, title, content, tags, project)
+    VALUES (new.id, new.title, new.content, new.tags, new.project);
+END;
+"""
+
+
 _FTS5_OPERATORS = {"AND", "OR", "NOT", "NEAR"}
-_FTS5_SPECIAL = set('-*%^()')
+# FTS5 special characters that cause syntax errors when unescaped.
+# Dot (.) triggers "fts5: syntax error near '.'" for tokens like "Analytics.astro".
+_FTS5_SPECIAL = set('-*%^().":+~')
 
 
 def _escape_fts5_query(query: str) -> str:
@@ -66,7 +107,9 @@ def _escape_fts5_query(query: str) -> str:
         elif token.startswith('"') and token.endswith('"'):
             escaped.append(token)
         elif any(c in _FTS5_SPECIAL for c in token):
-            escaped.append(f'"{token}"')
+            # Escape any embedded double-quotes before wrapping
+            safe = token.replace('"', '""')
+            escaped.append(f'"{safe}"')
         else:
             escaped.append(token)
     return " ".join(escaped)
@@ -100,6 +143,7 @@ class SqliteFtsStore:
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.executescript(_SCHEMA)
         self._conn.executescript(_TRIGGERS)
+        self._conn.executescript(_KNOWLEDGE_SCHEMA)
         self._conn.commit()
 
     def close(self):
@@ -305,3 +349,24 @@ class SqliteFtsStore:
         ):
             by_agent[row["agent_type"]] = row["cnt"]
         return {"total": total, "by_project": by_project, "by_agent": by_agent}
+
+    def knowledge_stats(self) -> dict:
+        """Stats for knowledge_files table."""
+        try:
+            total = self._conn.execute("SELECT COUNT(*) FROM knowledge_files").fetchone()[0]
+        except sqlite3.OperationalError:
+            return {"total": 0, "by_type": {}, "by_project": {}}
+
+        by_type = {}
+        for row in self._conn.execute(
+            "SELECT doc_type, COUNT(*) as cnt FROM knowledge_files GROUP BY doc_type"
+        ):
+            by_type[row["doc_type"]] = row["cnt"]
+
+        by_project = {}
+        for row in self._conn.execute(
+            "SELECT project, COUNT(*) as cnt FROM knowledge_files GROUP BY project"
+        ):
+            by_project[row["project"]] = row["cnt"]
+
+        return {"total": total, "by_type": by_type, "by_project": by_project}

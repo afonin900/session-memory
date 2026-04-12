@@ -105,6 +105,13 @@ def cmd_index(args):
         indexer.vector_store = vstore
         indexer._index_vectors_inprocess()
         print("Vectors-only indexing complete.")
+    elif args.knowledge:
+        from core.knowledge import index_knowledge
+        vstore = _get_vector_store() if not args.fts_only else None
+        stats = index_knowledge(store, vector_store=vstore)
+        print(f"Knowledge indexing complete:")
+        print(f"  Indexed: {stats['files_indexed']} files, {stats['entries_added']} new")
+        print(f"  Skipped: {stats['files_skipped']} unchanged")
     elif args.quick:
         vstore = _get_vector_store()
         indexer = _get_indexer(store, rss_ceiling_mb=args.max_memory)
@@ -295,6 +302,8 @@ def main():
                          help="Phase 2 only: vector embeddings with lock file (for background use)")
     p_index.add_argument("--skip-recent", type=int, default=60, metavar="MINUTES",
                          help="Skip files modified within last N minutes (default: 60)")
+    p_index.add_argument("--knowledge", action="store_true",
+                         help="Index ~/Knowledge/ MD files into FTS + vectors")
     p_index.set_defaults(func=cmd_index)
 
     # search

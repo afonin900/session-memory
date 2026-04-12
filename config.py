@@ -14,6 +14,8 @@ CLAUDE_LOGS_BASE = Path.home() / ".claude" / "projects"
 # Codex logs
 CODEX_LOGS_BASE = Path.home() / ".codex" / "sessions"
 
+KNOWLEDGE_BASE = Path.home() / "Knowledge"
+
 # Project name mapping (repo dir name -> short alias)
 PROJECT_MAP = {
     "ai-corporation-kfs": "kfs",
