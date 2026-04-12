@@ -173,6 +173,20 @@ def cmd_stats(args):
     store.close()
 
 
+def cmd_init(args):
+    from core.lifecycle import init_project
+    results = init_project(
+        project_name=args.project_name or Path.cwd().name,
+        profile=args.profile,
+    )
+    print(f"Session Memory initialized ({args.profile} profile):")
+    for f in results["created"]:
+        print(f"  + {f}")
+    for f in results["skipped"]:
+        print(f"  ~ {f} (exists, skipped)")
+    print(f"  Knowledge: {results['knowledge_dir']}")
+
+
 def main():
     def _handle_signal(signum, frame):
         print(f"\nReceived signal {signum}, shutting down...")
@@ -218,6 +232,13 @@ def main():
     # stats
     p_stats = sub.add_parser("stats", help="Show index statistics")
     p_stats.set_defaults(func=cmd_stats)
+
+    # init
+    p_init = sub.add_parser("init", help="Initialize session-memory in current project")
+    p_init.add_argument("--profile", choices=["software", "content"], default="software",
+                         help="Project profile (default: software)")
+    p_init.add_argument("--project-name", help="Project name (default: directory name)")
+    p_init.set_defaults(func=cmd_init)
 
     args = parser.parse_args()
     args.func(args)
