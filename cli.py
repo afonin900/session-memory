@@ -205,6 +205,24 @@ def cmd_wake(args):
         print(f"\n[status: {result['status']}]")
 
 
+def cmd_sleep(args):
+    from core.lifecycle import sleep
+    result = sleep(
+        project=args.project,
+        transcript_path=args.transcript,
+        summary=args.summary,
+        session_id=args.session_id,
+    )
+    if result["status"] == "completed":
+        ext = result.get("extracted", {})
+        print(f"Session saved to {result['session_file']}")
+        print(f"  Extracted: {ext.get('done',0)} done, {ext.get('not_done',0)} not done, {ext.get('decisions',0)} decisions")
+    elif result["status"] == "already_processed":
+        print(result["message"])
+    else:
+        print(f"Sleep status: {result['status']}")
+
+
 def main():
     def _handle_signal(signum, frame):
         print(f"\nReceived signal {signum}, shutting down...")
@@ -263,6 +281,14 @@ def main():
     p_wake.add_argument("-p", "--project", help="Project name")
     p_wake.add_argument("--hook", action="store_true", help="Output JSON for Claude Code hook")
     p_wake.set_defaults(func=cmd_wake)
+
+    # sleep
+    p_sleep = sub.add_parser("sleep", help="Save session state (run at session end)")
+    p_sleep.add_argument("-p", "--project", help="Project name")
+    p_sleep.add_argument("--transcript", help="Path to transcript JSONL")
+    p_sleep.add_argument("--summary", help="Explicit session summary")
+    p_sleep.add_argument("--session-id", help="Session ID for idempotency")
+    p_sleep.set_defaults(func=cmd_sleep)
 
     args = parser.parse_args()
     args.func(args)
