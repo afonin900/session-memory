@@ -35,3 +35,22 @@ def test_plain_words_unchanged():
 
 def test_empty_query():
     assert _escape_fts5_query("") == ""
+
+def test_dot_escaped():
+    assert _escape_fts5_query("Analytics.astro") == '"Analytics.astro"'
+
+def test_dot_in_query_with_plain_word():
+    result = _escape_fts5_query("sGTM Analytics.astro")
+    assert result == 'sGTM "Analytics.astro"'
+
+def test_dot_with_operator():
+    result = _escape_fts5_query("Analytics.astro AND sGTM")
+    assert result == '"Analytics.astro" AND sGTM'
+
+def test_colon_escaped():
+    assert _escape_fts5_query("project:kfs") == '"project:kfs"'
+
+def test_embedded_doublequote_escaped():
+    # Token with embedded quote: foo"bar → "foo""bar"
+    result = _escape_fts5_query('foo"bar')
+    assert result == '"foo""bar"'
