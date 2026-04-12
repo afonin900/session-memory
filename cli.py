@@ -46,6 +46,17 @@ def _get_indexer(store: SqliteFtsStore, rss_ceiling_mb: int | None = None) -> In
 def _format_fragment(frag, show_context=True):
     """Format a SessionFragment for terminal output."""
     lines = []
+
+    if frag.match.agent_type == "knowledge":
+        header = (
+            f"── [KB:{frag.project}] {frag.match.timestamp:%Y-%m-%d} "
+            f"({frag.match.file_paths[0] if frag.match.file_paths else 'unknown'}) ──"
+        )
+        lines = [header]
+        lines.append(f"> {frag.match.content[:300]}")
+        lines.append("─" * min(len(header), 80))
+        return "\n".join(lines)
+
     header = (
         f"── [{frag.project}] {frag.match.timestamp:%Y-%m-%d %H:%M} "
         f"({frag.match.agent_type}, session {frag.session_id[:8]}) ──"
@@ -143,12 +154,22 @@ def cmd_search(args):
     elif getattr(args, "all", False):
         mode = "all"
 
+    since_days = args.days
+    if hasattr(args, 'since') and args.since:
+        since = args.since
+        if since.endswith("d"):
+            since_days = int(since[:-1])
+        else:
+            from datetime import datetime as dt
+            delta = dt.now() - dt.fromisoformat(since)
+            since_days = max(1, delta.days)
+
     fragments = engine.search(
         query=args.query,
         mode=mode,
         project=args.project,
         agent_type=args.agent,
-        days=args.days,
+        days=since_days,
         role=args.role,
         limit=args.limit or 10,
     )
@@ -302,6 +323,34 @@ def cmd_sleep_hook(args):
     print(json_mod.dumps({"status": result["status"]}))
 
 
+def cmd_observe(args):
+    if args.full:
+        from core.observe import observe_full
+        facts = observe_full(
+            transcript_path=args.transcript,
+            project=args.project or Path.cwd().name,
+        )
+    else:
+        from core.observe import observe_fast
+        facts = observe_fast(
+            transcript_path=args.transcript,
+            project=args.project or Path.cwd().name,
+        )
+
+    if not facts:
+        print("No facts extracted.")
+        return
+
+    print(f"Extracted {len(facts)} facts:")
+    for f in facts:
+        print(f"  [{f['type']}] {f['content'][:100]}")
+
+    if args.save:
+        from core.observe import save_facts_to_knowledge
+        saved = save_facts_to_knowledge(facts)
+        print(f"\nSaved {saved} facts to ~/Knowledge/")
+
+
 def main():
     def _handle_signal(signum, frame):
         print(f"\nReceived signal {signum}, shutting down...")
@@ -344,6 +393,8 @@ def main():
     p_search.add_argument("--days", type=int, help="Only last N days")
     p_search.add_argument("--role", help="Filter by role (user, assistant...)")
     p_search.add_argument("--limit", type=int, default=10, help="Max results (default 10)")
+    p_search.add_argument("--type", dest="doc_type", help="Filter knowledge by type (decision, lesson, fact, plan)")
+    p_search.add_argument("--since", help="Filter by date (e.g. 7d, 30d, 2026-04-01)")
     p_search.set_defaults(func=cmd_search)
 
     # stats
@@ -378,6 +429,15 @@ def main():
     # sleep-hook
     p_sleep_hook = sub.add_parser("sleep-hook", help="Hook wrapper for sleep (reads stdin JSON)")
     p_sleep_hook.set_defaults(func=cmd_sleep_hook)
+
+    # observe
+    p_observe = sub.add_parser("observe", help="Extract facts from session transcript")
+    p_observe.add_argument("transcript", help="Path to transcript JSONL")
+    p_observe.add_argument("-p", "--project", help="Project name")
+    p_observe.add_argument("--fast", action="store_true", default=True, help="Regex extraction (default)")
+    p_observe.add_argument("--full", action="store_true", help="LLM extraction via OpenRouter")
+    p_observe.add_argument("--save", action="store_true", help="Save extracted facts to ~/Knowledge/")
+    p_observe.set_defaults(func=cmd_observe)
 
     args = parser.parse_args()
     args.func(args)
