@@ -223,6 +223,50 @@ def cmd_sleep(args):
         print(f"Sleep status: {result['status']}")
 
 
+def cmd_wake_hook(args):
+    """Hook wrapper: reads Claude Code hook JSON from stdin, runs wake."""
+    import json as json_mod
+    from core.lifecycle import wake
+
+    try:
+        hook_input = json_mod.load(sys.stdin)
+    except (json_mod.JSONDecodeError, ValueError):
+        hook_input = {}
+
+    cwd = hook_input.get("cwd", os.getcwd())
+    result = wake(cwd=cwd)
+
+    hook_output = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": result["context"],
+        }
+    }
+    print(json_mod.dumps(hook_output))
+
+
+def cmd_sleep_hook(args):
+    """Hook wrapper: reads Claude Code hook JSON from stdin, runs sleep."""
+    import json as json_mod
+    from core.lifecycle import sleep
+
+    try:
+        hook_input = json_mod.load(sys.stdin)
+    except (json_mod.JSONDecodeError, ValueError):
+        hook_input = {}
+
+    cwd = hook_input.get("cwd", os.getcwd())
+    transcript = hook_input.get("transcript_path")
+    session_id = hook_input.get("session_id")
+
+    result = sleep(
+        cwd=cwd,
+        transcript_path=transcript,
+        session_id=session_id,
+    )
+    print(json_mod.dumps({"status": result["status"]}))
+
+
 def main():
     def _handle_signal(signum, frame):
         print(f"\nReceived signal {signum}, shutting down...")
@@ -289,6 +333,14 @@ def main():
     p_sleep.add_argument("--summary", help="Explicit session summary")
     p_sleep.add_argument("--session-id", help="Session ID for idempotency")
     p_sleep.set_defaults(func=cmd_sleep)
+
+    # wake-hook
+    p_wake_hook = sub.add_parser("wake-hook", help="Hook wrapper for wake (reads stdin JSON)")
+    p_wake_hook.set_defaults(func=cmd_wake_hook)
+
+    # sleep-hook
+    p_sleep_hook = sub.add_parser("sleep-hook", help="Hook wrapper for sleep (reads stdin JSON)")
+    p_sleep_hook.set_defaults(func=cmd_sleep_hook)
 
     args = parser.parse_args()
     args.func(args)
