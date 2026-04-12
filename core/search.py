@@ -42,6 +42,14 @@ class SearchEngine:
                 fts_query, project=project, agent_type=agent_type,
                 days=days, role=role, limit=limit,
             )
+            # Also search knowledge base
+            try:
+                kb_results = self.store.search_knowledge(
+                    fts_query, project=project, days=days, limit=5,
+                )
+                results.extend(kb_results)
+            except Exception:
+                pass  # knowledge table may not exist yet
         elif mode == "semantic":
             if not self.vector_store:
                 raise RuntimeError("Semantic search requires vector store (install Phase 2)")
@@ -64,6 +72,16 @@ class SearchEngine:
             if result.id in seen_ids:
                 continue
             seen_ids.add(result.id)
+            # Knowledge results don't have session context
+            if result.agent_type == "knowledge":
+                fragments.append(SessionFragment(
+                    match=result,
+                    before=[],
+                    after=[],
+                    session_id=result.session_id,
+                    project=result.project,
+                ))
+                continue
             try:
                 fragment = self.store.get_context(result.id, window=CONTEXT_WINDOW)
                 fragments.append(fragment)
@@ -98,16 +116,24 @@ class SearchEngine:
             if self.vector_store else []
         )
 
+        # Knowledge base results
+        knowledge_results = self.store.search_knowledge(
+            query, project=project, days=days, limit=10,
+        )
+
         # Score by position
         scores: dict[int, float] = {}
         for rank, r in enumerate(keyword_results):
             scores[r.id] = scores.get(r.id, 0) + 1.0 / (k + rank + 1)
         for rank, r in enumerate(semantic_results):
             scores[r.id] = scores.get(r.id, 0) + 1.0 / (k + rank + 1)
+        for rank, r in enumerate(knowledge_results):
+            scores[r.id] = scores.get(r.id, 0) + 1.0 / (k + rank + 1)
 
         # Build result lookup
         all_results = {r.id: r for r in keyword_results}
         all_results.update({r.id: r for r in semantic_results})
+        all_results.update({r.id: r for r in knowledge_results})
 
         # Sort by RRF score
         sorted_ids = sorted(scores, key=lambda x: scores[x], reverse=True)

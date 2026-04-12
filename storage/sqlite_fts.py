@@ -360,6 +360,60 @@ class SqliteFtsStore:
             by_agent[row["agent_type"]] = row["cnt"]
         return {"total": total, "by_project": by_project, "by_agent": by_agent}
 
+    def search_knowledge(
+        self,
+        query: str,
+        project: str | None = None,
+        doc_type: str | None = None,
+        days: int | None = None,
+        limit: int = 20,
+    ) -> list[SearchResult]:
+        """FTS5 search over knowledge_files."""
+        query = _escape_fts5_query(query)
+        conditions = ["knowledge_fts MATCH ?"]
+        params: list = [query]
+
+        if project:
+            conditions.append("k.project = ?")
+            params.append(project)
+        if doc_type:
+            conditions.append("k.doc_type = ?")
+            params.append(doc_type)
+        if days:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+            conditions.append("k.date > ?")
+            params.append(cutoff)
+
+        params.append(limit)
+        where = " AND ".join(conditions)
+
+        rows = self._conn.execute(
+            f"""SELECT k.id, k.project, k.title, k.doc_type, k.content,
+                       k.date, k.file_path, knowledge_fts.rank as score
+                FROM knowledge_fts
+                JOIN knowledge_files k ON k.id = knowledge_fts.rowid
+                WHERE {where}
+                ORDER BY knowledge_fts.rank
+                LIMIT ?""",
+            params,
+        ).fetchall()
+
+        results = []
+        for r in rows:
+            results.append(SearchResult(
+                id=10_000_000 + r["id"],
+                agent_type="knowledge",
+                project=r["project"],
+                session_id=f"knowledge-{r['id']}",
+                role="document",
+                content=r["content"][:500],
+                timestamp=datetime.fromisoformat(r["date"]) if r["date"] else datetime.now(timezone.utc),
+                file_paths=[r["file_path"]],
+                issue_numbers=[],
+                score=r["score"],
+            ))
+        return results
+
     def knowledge_stats(self) -> dict:
         """Stats for knowledge_files table."""
         try:
