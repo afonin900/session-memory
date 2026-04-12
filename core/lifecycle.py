@@ -109,6 +109,33 @@ def init_project(project_name: str, profile: str = "software") -> dict:
     kb_dir.mkdir(parents=True, exist_ok=True)
     results["knowledge_dir"] = str(kb_dir)
 
+    # Auto-setup hooks in project settings
+    settings_path = claude_dir / "settings.local.json"
+    if not settings_path.exists():
+        sm_cli = str(Path(__file__).parent.parent / "cli.py")
+        hooks_config = {
+            "hooks": {
+                "SessionStart": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": f"python3 {sm_cli} wake-hook",
+                        "timeout": 10,
+                    }]
+                }],
+                "SessionEnd": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": f"python3 {sm_cli} sleep-hook",
+                        "timeout": 60,
+                    }]
+                }],
+            }
+        }
+        settings_path.write_text(json.dumps(hooks_config, indent=2))
+        results["created"].append(str(settings_path))
+    else:
+        results["skipped"].append(f"{settings_path} (exists)")
+
     return results
 
 
